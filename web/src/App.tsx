@@ -24,7 +24,7 @@ import {
 import { deviceRuns, readDevicePlan, removeDeviceRun, writeDevicePlan, type SavedRun } from "./storage";
 import { downloadGpx } from "./gpx";
 import { useRecorder } from "./useRecorder";
-import { buildPlan, cue, type PlanSettings, type Workout } from "./plan";
+import { buildPlan, completes, cue, type PlanSettings, type Workout } from "./plan";
 import { announce, NextWorkout, PlanPage, WorkoutGuide } from "./PlanPage";
 import { Button } from "./ui";
 
@@ -197,7 +197,13 @@ function Workspace({
     [planError, setPlanError] = useState(""),
     [chosen, setChosen] = useState<string | null>(null);
   const workouts = useMemo(() => (plan ? buildPlan(plan) : []), [plan]);
-  const done = new Set(runs.runs.flatMap((run) => (run.draft.workout ? [run.draft.workout] : [])));
+  const done = new Set(
+    workouts
+      .filter((w) =>
+        runs.runs.some((run) => run.draft.workout === w.id && completes(w, run.draft.activeMs, distance(run.draft))),
+      )
+      .map((w) => w.id),
+  );
   const next = workouts.find((w) => !done.has(w.id));
   const offered = workouts.find((w) => w.id === chosen) ?? next;
   const following = workouts.find((w) => w.id === draft?.workout);
@@ -328,7 +334,7 @@ function Workspace({
           />
           <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
             <div className="space-y-5">
-              {following && <WorkoutGuide workout={following} ms={duration} running={recorder.running} voice={voice} />}
+              {following && <WorkoutGuide workout={following} ms={duration} meters={total} running={recorder.running} voice={voice} />}
               {!draft && offered && (
                 <NextWorkout workout={offered} disabled={recorder.busy} onStart={() => startWorkout(offered)} />
               )}

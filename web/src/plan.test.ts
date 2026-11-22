@@ -1,7 +1,7 @@
 // @ts-nocheck — vendored as-is from proappstore-online/run tests (plain JS).
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { buildPlan, parsePlan, stepAt, totalMs, cue, monday, addDays, GOALS } from "./plan";
+import { buildPlan, parsePlan, stepAt, totalMs, cue, completes, monday, addDays, GOALS } from "./plan";
 import { emptySession, resume, restore } from "./engine";
 
 const settings = (goal) => ({ version: 1, id: "p1", goal, start: "2026-11-23", days: [1, 3, 5], created: 1 });
@@ -62,4 +62,18 @@ test("runs carry the workout they follow through checkpoint and restore", () => 
   assert.equal(restore(JSON.stringify(s.draft)).workout, "p1:1-1");
   assert.equal(resume(emptySession(), null, 1000, "r2").draft.workout, undefined);
   assert.equal(restore(JSON.stringify({ ...s.draft, workout: 5 })), null);
+});
+
+test("a workout completes at 90% of its time, or at a race session's distance", () => {
+  const plan = buildPlan(settings("5k"));
+  const first = plan[0], total = totalMs(first.steps);
+  assert.equal(completes(first, 60000, 200), false, "a 1-minute attempt is not a completed workout");
+  assert.equal(completes(first, total * 0.9, 0), true);
+  const race = plan.at(-1);
+  assert.equal(race.target, 5000);
+  assert.equal(completes(race, 32 * 60000, 5000), true, "reaching 5K early completes the race");
+  assert.equal(completes(race, 32 * 60000, 4900), false);
+  assert.equal(buildPlan(settings("10k")).at(-1).target, 10000);
+  assert.equal(cue({ kind: "fast", seconds: 60 }), "Run fast for 1 minute");
+  assert.equal(cue({ kind: "easy", seconds: 120 }), "Run easy for 2 minutes");
 });

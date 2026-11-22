@@ -80,6 +80,10 @@ test("plan, guided workout with cues, completion tick and profile prefs", async 
   await expect(page.getByText("Next: Walk 1:30")).toBeVisible();
   expect(await page.evaluate(() => (window as any).spoken)).toEqual(["Warm up for 5 minutes", "Run for 1 minute"]);
   await page.screenshot({ path: `test-results/guide-${test.info().project.name}.png`, fullPage: true });
+  // Week 1 run 1 is 28.5 min: a partial attempt must not tick it, so finish the workout.
+  await page.clock.runFor(28.5 * 60000 - 300000);
+  await expect(page.getByText("Workout complete")).toBeVisible();
+  expect((await page.evaluate(() => (window as any).spoken)).at(-1)).toMatch(/^Workout complete/);
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await page.getByRole("button", { name: "Finish", exact: true }).click();
   await expect(page.getByLabel("Run name")).toHaveValue("Week 1 · Run 1");

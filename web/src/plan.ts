@@ -19,6 +19,8 @@ export type Workout = {
   title: string;
   summary: string;
   steps: Step[];
+  /** Race sessions: reaching this distance (metres) completes the workout early. */
+  target?: number;
 };
 
 export const GOALS: Record<Goal, { name: string; weeks: number; description: string }> = {
@@ -72,6 +74,7 @@ function session(goal: Goal, week: number, n: number): Omit<Workout, "id" | "wee
         title: "Your first 5K",
         summary: "Run 5K at an easy pace. Short walk breaks are fine.",
         steps: [s("warmup", 5), s("run", 35), s("cooldown", 5)],
+        target: 5000,
       };
     const [summary, main] = FIRST_5K[week - 1];
     // A final walk would run straight into the cool-down walk.
@@ -97,6 +100,7 @@ function session(goal: Goal, week: number, n: number): Omit<Workout, "id" | "wee
       title: "Your 10K",
       summary: "Run 10K. Start easy and save something for the last 2K.",
       steps: [s("warmup", 5), s("easy", 70), s("cooldown", 5)],
+      target: 10000,
     };
   return {
     title: "Long run",
@@ -149,7 +153,18 @@ export function spoken(seconds: number) {
   const parts = [m && `${m} minute${m === 1 ? "" : "s"}`, r && `${r} seconds`].filter(Boolean);
   return parts.join(" ");
 }
-export const cue = (step: Step) => `${stepLabel(step)} for ${spoken(step.seconds)}`;
+const VERBS: Record<StepKind, string> = {
+  warmup: "Warm up",
+  run: "Run",
+  easy: "Run easy",
+  fast: "Run fast",
+  walk: "Walk",
+  cooldown: "Cool down",
+};
+export const cue = (step: Step) => `${VERBS[step.kind]} for ${spoken(step.seconds)}`;
+/** A run completes a workout once it covers 90% of the planned time, or a race session's distance. */
+export const completes = (workout: Workout, activeMs: number, meters: number) =>
+  activeMs >= totalMs(workout.steps) * 0.9 || (workout.target !== undefined && meters >= workout.target);
 export function mmss(ms: number) {
   const total = Math.ceil(Math.max(0, ms) / 1000);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;

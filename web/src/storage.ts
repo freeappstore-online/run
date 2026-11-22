@@ -75,15 +75,19 @@ export function archiveRun(run: SavedRun) {
 }
 export function deviceRuns() {
   return withStore(async (store) => {
-    const ids =
-      unwrap(await getRecord(store, "index", isIndex), "Device history could not be read.") ?? [];
-    const runs: SavedRun[] = [];
-    for (const id of ids) {
-      const found = await getRecord<SavedRun>(store, `run.${id}`);
-      const run = found.ok ? found.value : undefined;
-      if (run && typeof run.title === "string" && run.id === run.draft?.id && restore(JSON.stringify(run.draft)))
-        runs.push(run);
-    }
+    const found = unwrap(
+      await withTransaction(store, "readonly", async (tx) => {
+        const ids = await tx.get("index");
+        if (ids === undefined) return [];
+        if (!isIndex(ids)) throw Error("corrupt index");
+        return Promise.all(ids.map((id) => tx.get(`run.${id}`)));
+      }),
+      "Device history could not be read.",
+    );
+    const runs = (found as (SavedRun | undefined)[]).filter(
+      (run): run is SavedRun =>
+        !!run && typeof run.title === "string" && run.id === run.draft?.id && !!restore(JSON.stringify(run.draft)),
+    );
     return runs.sort((a, b) => b.draft.started - a.draft.started);
   });
 }

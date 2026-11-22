@@ -18,13 +18,15 @@ import {
   type Workout,
 } from "./plan";
 
-export function announce(text: string, voice: boolean) {
+/** Speech plus vibration; both are off when the user disables cues. */
+export function announce(text: string, enabled: boolean) {
+  if (!enabled) return;
   try {
     navigator.vibrate?.([200, 100, 200]);
   } catch {
     // Vibration is optional.
   }
-  if (voice && "speechSynthesis" in window) {
+  if ("speechSynthesis" in window) {
     speechSynthesis.cancel();
     speechSynthesis.speak(new SpeechSynthesisUtterance(text));
   }
@@ -84,16 +86,21 @@ export function NextWorkout({
 export function WorkoutGuide({
   workout,
   ms,
+  meters,
   running,
   voice,
 }: {
   workout: Workout;
   ms: number;
+  meters: number;
   running: boolean;
   voice: boolean;
 }) {
   const { steps } = workout;
-  const { index, remaining } = stepAt(steps, ms);
+  const reached = workout.target !== undefined && meters >= workout.target;
+  const at = stepAt(steps, ms);
+  const index = reached ? steps.length : at.index,
+    remaining = at.remaining;
   const complete = index === steps.length;
   const last = useRef(index);
   useEffect(() => {
@@ -101,10 +108,14 @@ export function WorkoutGuide({
     last.current = index;
     if (running)
       announce(
-        complete ? "Workout complete. Great work. Finish when you're ready." : cue(steps[index]),
+        complete
+          ? reached
+            ? `You've run ${workout.target! / 1000}K. Amazing. Finish when you're ready.`
+            : "Workout complete. Great work. Finish when you're ready."
+          : cue(steps[index]),
         voice,
       );
-  }, [index, complete, running, voice, steps]);
+  }, [index, complete, reached, running, voice, steps, workout.target]);
   const next = steps[index + 1];
   return (
     <Card>
