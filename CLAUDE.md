@@ -36,3 +36,9 @@ Canonical source and guidance:
 https://github.com/freeappstore-online/platform/blob/main/docs/composable-starter-contract.md
 https://github.com/freeappstore-online/platform/blob/main/docs/starter-release.md
 https://github.com/freeappstore-online/platform/blob/main/CONTRIBUTING.md#updating-the-external-app-starter-repositories
+
+## Run specifics
+- Single-user, device-only. No fas.kv or collections, and nothing is uploaded. Sign-in is optional and syncs nothing.
+- `engine.ts`, `plan.ts`, `gpx.ts`, `RouteMap.tsx`, `useRecorder.ts` and `PlanPage.tsx` are vendored from proappstore-online/run. Port fixes by hand in both directions.
+- Persist record keys must match `[A-Za-z0-9._-]{1,64}`: runs are `run.<uuid>`, plus an `index` record of their ids.
+- Recording is foreground-only. Never claim background tracking. Workout ids are `<planId>:<week>-<n>`; never change a goal's step data in place.
