@@ -86,6 +86,13 @@ test("with several devices only the stream with the most points is used", async 
   assert.deepEqual(pickStream([]), []);
 });
 
+test("choosing the stream stays linear: a 20,000-point window is grouped in well under the catch-up budget", () => {
+  const points = Array.from({ length: 20000 }, (_, i) => point(i, i % 4 ? "a" : "b", 1000 + i));
+  const started = performance.now();
+  assert.equal(pickStream(points).length, 15000);
+  assert.ok(performance.now() - started < 250, `${Math.round(performance.now() - started)} ms`);
+});
+
 test("a failing response is complete:false, keeping what was already read", async () => {
   const failing = nativeSource(true, () => json({ error: "nope" }, 500));
   assert.deepEqual(await failing.fetch(0, 9000, signal()), { fixes: [], complete: false });

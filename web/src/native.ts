@@ -30,7 +30,11 @@ export async function nativeStatus(authFetch: AuthFetch): Promise<NativeStatus |
 /** Several phones can be enrolled; keep the one device/stream with the most points so tracks never interleave. */
 export function pickStream(points: NativePoint[]): Fix[] {
   const groups = new Map<string, NativePoint[]>();
-  for (const p of points) groups.set(p.grantId, [...(groups.get(p.grantId) ?? []), p]);
+  for (const p of points) {
+    const group = groups.get(p.grantId);
+    if (group) group.push(p);
+    else groups.set(p.grantId, [p]);
+  }
   let best: NativePoint[] = [];
   for (const g of groups.values()) if (g.length > best.length) best = g;
   return best.map((p) => ({ lat: p.lat, lng: p.lng, at: p.at, accuracy: p.accuracy, altitude: null }));
