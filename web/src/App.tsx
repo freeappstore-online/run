@@ -25,6 +25,8 @@ import {
 import { deviceRuns, readDevicePlan, removeDeviceRun, writeDevicePlan, type SavedRun } from "./storage";
 import { downloadGpx } from "./gpx";
 import { useRecorder } from "./useRecorder";
+import { COMPANION_LINK } from "./native";
+import { useNativeSource } from "./useNativeSource";
 import { buildPlan, completes, cue, type PlanSettings, type Workout } from "./plan";
 import { announce, PlanPage } from "./PlanPage";
 import { Metric, RecordScreen, RouteMapLazy, SplitTable } from "./RecordScreen";
@@ -55,8 +57,11 @@ export default function App() {
   const [unit, setUnit] = useState<Unit>(() => (readPref("run:units", "km") === "mi" ? "mi" : "km"));
   const [keepAwake, setKeepAwake] = useState(() => readPref("run:awake", "true") !== "false");
   const [voice, setVoice] = useState(() => readPref("run:voice", "true") !== "false");
-  // Single-user: runs belong to this device, never to an account.
-  const recorder = useRecorder(null, keepAwake);
+  // Single-user: runs belong to this device, never to an account. The companion
+  // source only fills a locked stretch from the signed-in user's own points.
+  const { status, signedIn, source } = useNativeSource(fas);
+  const recorder = useRecorder(null, keepAwake, source);
+  const offerCompanion = signedIn && status?.available === true && !status.enabled;
   useEffect(() => {
     const changed = () => setPath(location.pathname);
     window.addEventListener("popstate", changed);
@@ -83,6 +88,7 @@ export default function App() {
         setKeepAwake={setKeepAwake}
         voice={voice}
         setVoice={setVoice}
+        offerCompanion={offerCompanion}
       />
     </Shell>
   );
@@ -125,6 +131,7 @@ function Workspace({
   setKeepAwake,
   voice,
   setVoice,
+  offerCompanion,
 }: {
   path: string;
   recorder: ReturnType<typeof useRecorder>;
@@ -134,6 +141,7 @@ function Workspace({
   setKeepAwake: (value: boolean) => void;
   voice: boolean;
   setVoice: (value: boolean) => void;
+  offerCompanion: boolean;
 }) {
   const { draft } = recorder.state;
   const [finishOpen, setFinishOpen] = useState(false),
@@ -275,6 +283,8 @@ function Workspace({
               <h2 className="mb-2 text-lg font-bold">How recording works</h2>
               <p className="text-sm leading-7 text-muted">
                 Keep Run open and visible. Locking your phone or switching apps pauses recording; return and tap Resume.
+                If you are signed in and the FreeAppStore phone app shares location with Run, Run adds the route that
+                app recorded while locked when you return.
                 GPS needs location permission, but recording and saves work without internet after the app is loaded. Map
                 imagery needs a connection. Saved runs are accessible to anyone using this browser profile and can be lost
                 if browser storage is cleared.
@@ -283,29 +293,39 @@ function Workspace({
           </div>
         </ProfilePage>
       ) : (
-        <RecordScreen
-          recorder={recorder}
-          unit={unit}
-          voice={voice}
-          following={following}
-          offered={offered}
-          privacy="Stays on this device"
-          onStartWorkout={startWorkout}
-          onFinish={() => {
-            if (!draft) return;
-            recorder.stop();
-            setTitle(
-              following
-                ? `Week ${following.week} · ${following.title}`
-                : `Run · ${new Date(draft.started).toLocaleDateString()}`,
-            );
-            setFinishOpen(true);
-          }}
-          onDiscard={() => {
-            recorder.stop();
-            setDiscardOpen(true);
-          }}
-        />
+        <>
+          <RecordScreen
+            recorder={recorder}
+            unit={unit}
+            voice={voice}
+            following={following}
+            offered={offered}
+            privacy="Stays on this device"
+            onStartWorkout={startWorkout}
+            onFinish={() => {
+              if (!draft) return;
+              recorder.stop();
+              setTitle(
+                following
+                  ? `Week ${following.week} · ${following.title}`
+                  : `Run · ${new Date(draft.started).toLocaleDateString()}`,
+              );
+              setFinishOpen(true);
+            }}
+            onDiscard={() => {
+              recorder.stop();
+              setDiscardOpen(true);
+            }}
+          />
+          {offerCompanion && (
+            <p className="mt-3 text-xs text-muted">
+              Keep recording when locked:{" "}
+              <a className="font-semibold text-accent underline" href={COMPANION_LINK}>
+                open the FreeAppStore app
+              </a>
+            </p>
+          )}
+        </>
       )}
       <Modal open={finishOpen} onClose={() => !recorder.busy && setFinishOpen(false)} title="Finish your run">
         <form
