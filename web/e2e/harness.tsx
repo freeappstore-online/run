@@ -23,7 +23,7 @@ const source: GapSource = {
     if (gap.behavior === "empty") return { fixes: [], complete: true };
     const fixes = Array.from({ length: 30 }, (_, i) => ({
       lat: -37.81,
-      lng: 144.96 + (50 + i * 5) / 87850,
+      lng: 144.96 + (50 + i * 6) / 87850,
       at: since + 2000 * (i + 1),
       accuracy: 5,
       altitude: null,

@@ -5,6 +5,8 @@ export type Fix = {
   at: number;
   accuracy: number;
   altitude: number | null;
+  /** Doppler ground speed (m/s) when the device reports it; independent of position noise. */
+  speed?: number | null;
 };
 export type Point = Fix & {
   segment: number;
@@ -198,12 +200,12 @@ export function ingest(state: Session, fix: Fix, now: number): Session {
   if (anchor && fix.at <= anchor.at) return state;
   const same = anchor && anchor.segment === d.segment;
   const delta = same ? meters(anchor, fix) : 0;
-  const threshold = Math.max(
-    3,
-    Math.min(anchor?.accuracy ?? fix.accuracy, fix.accuracy) * 0.5,
-  );
+  // A step counts only once it clears both fixes' accuracy: smaller moves are
+  // indistinguishable from jitter. A reported speed under 0.3 m/s is standing still.
+  const threshold = Math.max(5, anchor?.accuracy ?? 0, fix.accuracy);
+  const still = typeof fix.speed === "number" && fix.speed >= 0 && fix.speed < 0.3;
   const points =
-    same && delta < threshold
+    same && (delta < threshold || still)
       ? d.points
       : [
           ...d.points,

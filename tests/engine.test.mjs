@@ -44,6 +44,42 @@ test("stationary noise adds no distance but the independent timer continues", ()
   assert.equal(distance(s.draft), 0);
   assert.equal(activeTime(s.draft, origin + 99000), 99000);
 });
+// Deterministic noise for the GPS fixtures below.
+const noise = ((seed) => () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648)(7);
+test("indoor jitter inside the reported accuracy adds no distance (#7)", () => {
+  // Standing still indoors: accuracy 12-53 m (validFix drops the fixes over 25 m),
+  // each fix off the true spot by up to half its accuracy, in any direction.
+  let s = start();
+  for (let i = 0; i < 300; i++) {
+    const accuracy = 12 + noise() * 41,
+      r = (accuracy / 2) * noise(),
+      a = 2 * Math.PI * noise(),
+      at = origin + i * 3000;
+    s = ingest(s, { lat: (r * Math.sin(a)) / 111195, lng: (r * Math.cos(a)) / 111195, at, accuracy, altitude: null }, at);
+  }
+  assert.equal(distance(s.draft), 0);
+});
+test("a 3 m-accuracy walk counts within 5% of its length (#7)", () => {
+  let s = start();
+  for (let i = 0; i < 400; i++) {
+    const at = origin + i * 1000;
+    const f = { lat: (noise() - 0.5) / 111195, lng: (1.4 * i + noise() - 0.5) / 111195, at, accuracy: 3, altitude: null, speed: 1.4 };
+    s = ingest(s, f, at);
+  }
+  const truth = 1.4 * 399;
+  assert.ok(Math.abs(distance(s.draft) - truth) / truth < 0.05, `${distance(s.draft)} vs ${truth}`);
+});
+test("Doppler speed under 0.3 m/s holds the anchor; unknown speed falls back to position (#7)", () => {
+  const at = (x, t, speed) => ingest(s, { ...fix(x, t, 3), speed }, origin + t * 1000);
+  let s = start();
+  s = at(0, 0, 0);
+  s = at(8, 3, 0.1);
+  assert.equal(distance(s.draft), 0);
+  s = at(16, 6, 2);
+  assert.ok(Math.abs(distance(s.draft) - 16) < 0.1);
+  s = at(24, 9, null);
+  assert.ok(Math.abs(distance(s.draft) - 24) < 0.1);
+});
 test("pause and recovery exclude paused time and never bridge distance", () => {
   let s = feed(feed(start(), 0, 0), 10, 3);
   s = pause(s, origin + 4000);
@@ -112,7 +148,7 @@ const hiddenRun = () => {
   let s = feed(feed(feed(start(), 0, 0), 10, 3), 20, 6);
   return hide(s, origin + 9000, true);
 };
-const locked = (from, to, step = 2, speed = 2.5) => {
+const locked = (from, to, step = 2, speed = 3) => {
   const out = [];
   for (let t = from; t <= to; t += step) out.push(fix(20 + (t - 6) * speed, t));
   return out;

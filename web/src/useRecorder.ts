@@ -200,6 +200,7 @@ export function useRecorder(owner: string | null, keepAwake: boolean, source?: G
               lng: position.coords.longitude,
               accuracy: position.coords.accuracy,
               altitude: position.coords.altitude,
+              speed: position.coords.speed,
               at: position.timestamp,
             },
             Date.now(),
