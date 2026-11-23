@@ -1,8 +1,7 @@
-// @ts-nocheck — vendored as-is from proappstore-online/run tests (plain JS).
-import { test } from "vitest";
+import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPlan, parsePlan, stepAt, totalMs, cue, completes, monday, addDays, GOALS } from "./plan";
-import { emptySession, resume, restore } from "./engine";
+import { buildPlan, parsePlan, stepAt, totalMs, cue, completes, monday, addDays, GOALS } from "../web/src/plan.ts";
+import { emptySession, resume, restore } from "../web/src/engine.ts";
 
 const settings = (goal) => ({ version: 1, id: "p1", goal, start: "2026-11-23", days: [1, 3, 5], created: 1 });
 

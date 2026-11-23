@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Card, PageHeader } from "@freeappstore/sdk/ui";
-import { Button } from "./ui";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Button, Card, PageHeader } from "./ui";
 import {
   GOALS,
   WEEKDAYS,
@@ -276,6 +275,7 @@ export function PlanPage({
   done,
   next,
   error,
+  note,
   onSave,
   onStart,
 }: {
@@ -284,6 +284,8 @@ export function PlanPage({
   done: Set<string>;
   next: Workout | undefined;
   error: string;
+  /** App-specific line under the progress bar, e.g. where the plan is saved. */
+  note?: ReactNode;
   onSave: (plan: PlanSettings) => void;
   onStart: (workout: Workout) => void;
 }) {
@@ -338,7 +340,7 @@ export function PlanPage({
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-line">
           <div className="h-full bg-accent" style={{ width: `${(completed / workouts.length) * 100}%` }} />
         </div>
-        <p className="mt-3 text-sm text-muted">Your plan is saved on this device.</p>
+        {note && <p className="mt-3 text-sm text-muted">{note}</p>}
       </Card>
       {next ? (
         <NextWorkout workout={next} disabled={false} onStart={() => onStart(next)} />

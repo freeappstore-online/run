@@ -1,5 +1,8 @@
 import type { ButtonHTMLAttributes } from "react";
 
+// Per-app UI adapter for the shared core (scripts/sync-core.mjs).
+export { Card, PageHeader } from "@freeappstore/sdk/ui";
+
 // The FAS SDK UI has no button primitive; this one follows the shared design tokens.
 const VARIANTS = {
   primary: "bg-accent text-[var(--on-accent)] hover:bg-accent-hover",

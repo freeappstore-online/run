@@ -252,6 +252,7 @@ function Workspace({
           done={done}
           next={next}
           error={planError}
+          note="Your plan is saved on this device."
           onSave={(settings) => {
             setPlan(settings);
             try {

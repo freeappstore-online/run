@@ -1,5 +1,4 @@
-// @ts-nocheck — vendored as-is from proappstore-online/run tests (plain JS).
-import { test } from "vitest";
+import test from "node:test";
 import assert from "node:assert/strict";
 import {
   emptySession,
@@ -14,8 +13,8 @@ import {
   splits,
   pace,
   segments,
-} from "./engine";
-import { gpx } from "./gpx";
+} from "../web/src/engine.ts";
+import { gpx } from "../web/src/gpx.ts";
 const origin = 1700000000000;
 const fix = (x, seconds, accuracy = 5) => ({
   lat: 0,

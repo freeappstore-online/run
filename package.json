@@ -16,7 +16,7 @@
     "build": "pnpm --filter @run/web build",
     "preview": "pnpm --filter @run/web preview",
     "typecheck": "pnpm --filter @run/web exec tsc -b",
-    "test": "pnpm --filter @run/web test",
+    "test": "pnpm --filter @run/web test && node --experimental-strip-types --test tests/*.test.mjs && node scripts/sync-core.mjs --check",
     "test:browser": "playwright test"
   },
   "dependencies": {
