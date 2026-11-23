@@ -42,3 +42,6 @@ https://github.com/freeappstore-online/platform/blob/main/CONTRIBUTING.md#updati
 - `engine.ts`, `plan.ts`, `gpx.ts`, `RouteMap.tsx`, `useRecorder.ts` and `PlanPage.tsx` are vendored from proappstore-online/run. Port fixes by hand in both directions.
 - Persist record keys must match `[A-Za-z0-9._-]{1,64}`: runs are `run.<uuid>`, plus an `index` record of their ids.
 - Recording is foreground-only. Never claim background tracking. Workout ids are `<planId>:<week>-<n>`; never change a goal's step data in place.
+
+## Shared core with the other run app
+`scripts/sync-core.mjs` lists the files shared byte-for-byte with the other store's run app (proappstore-online/run and freeappstore-online/run). Build shared features in FAS first. After changing a core file, run `node scripts/sync-core.mjs --write`, commit, then sync it into the other app with `node scripts/sync-core.mjs <path-to-this-app>`. `pnpm test` fails if a core file drifts from `core.json`. App-specific code lives in `web/src/ui*` (SDK components) and `web/src/storage.ts` (same exported API), never in core files. Plan settings are versioned: keep `parsePlan` reading every older version with unchanged workout ids.
