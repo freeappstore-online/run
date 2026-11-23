@@ -7,9 +7,12 @@ import { segments, type Point } from "./engine";
 export function RouteMap({
   points,
   follow = false,
+  fill = false,
 }: {
   points: Point[];
   follow?: boolean;
+  /** Fill the parent's height (mobile Map view) instead of a fixed height. */
+  fill?: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null),
     map = useRef<maplibregl.Map | null>(null),
@@ -122,11 +125,11 @@ export function RouteMap({
     } else fit();
   }, [points, ready, follow]);
   return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-panel">
-      <div className="relative">
+    <div className={`overflow-hidden rounded-2xl border border-line bg-panel ${fill ? "flex h-full flex-col" : ""}`}>
+      <div className={`relative ${fill ? "min-h-0 flex-1" : ""}`}>
         <div
           ref={container}
-          className="h-72 w-full sm:h-96"
+          className={fill ? "h-full min-h-40 w-full" : "h-72 w-full sm:h-96"}
           aria-label="Run route map"
           role="region"
         />

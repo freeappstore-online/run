@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { initApp } from "@freeappstore/sdk";
 import {
   Card,
@@ -26,35 +26,17 @@ import { deviceRuns, readDevicePlan, removeDeviceRun, writeDevicePlan, type Save
 import { downloadGpx } from "./gpx";
 import { useRecorder } from "./useRecorder";
 import { buildPlan, completes, cue, type PlanSettings, type Workout } from "./plan";
-import { announce, NextWorkout, PlanPage, WorkoutGuide } from "./PlanPage";
+import { announce, PlanPage } from "./PlanPage";
+import { Metric, RecordScreen, RouteMapLazy, SplitTable } from "./RecordScreen";
+import { ICONS, IconNavigation, NavigationIcon } from "./IconNav";
 import { Button } from "./ui";
 
 export const fas = initApp({ appId: "run" });
 
-const LazyRouteMap = lazy(() => import("./RouteMap").then((m) => ({ default: m.RouteMap })));
-function RouteMap(props: Parameters<typeof LazyRouteMap>[0]) {
-  return (
-    <Suspense
-      fallback={
-        <div className="flex h-72 items-center justify-center rounded-2xl border border-line text-sm text-muted">
-          Loading route map…
-        </div>
-      }
-    >
-      <LazyRouteMap {...props} />
-    </Suspense>
-  );
-}
-
-const icon = (d: string) => (
-  <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-    <path d={d} />
-  </svg>
-);
 const NAV: NavItem[] = [
-  { label: "Record", href: "/", title: "Record — Run", icon: icon("M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-2 5 6 4-6 4V8Z") },
-  { label: "Plan", href: "/plan", title: "Plan — Run", icon: icon("M8 2v4m8-4v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z") },
-  { label: "History", href: "/history", title: "History — Run", icon: icon("M3 12a9 9 0 1 0 3-6.7M3 3v6h6m3-2v5l3 2") },
+  { label: "Record", href: "/", title: "Record — Run", icon: <NavigationIcon path={ICONS.record} /> },
+  { label: "Plan", href: "/plan", title: "Plan — Run", icon: <NavigationIcon path={ICONS.plan} /> },
+  { label: "History", href: "/history", title: "History — Run", icon: <NavigationIcon path={ICONS.history} /> },
 ];
 function readPref(key: string, fallback: string) {
   try {
@@ -81,7 +63,17 @@ export default function App() {
     return () => window.removeEventListener("popstate", changed);
   }, []);
   return (
-    <Shell app={fas} appName="Run" nav={NAV} onNavigate={navigate} profileHref="/profile" headerAppearance={false}>
+    <Shell
+      app={fas}
+      appName="Run"
+      nav={NAV}
+      renderNav={(context) => (
+        <IconNavigation {...context} activity={recorder.running ? { href: "/", label: "Run recording" } : undefined} />
+      )}
+      onNavigate={navigate}
+      profileHref="/profile"
+      headerAppearance={false}
+    >
       <Workspace
         path={path}
         recorder={recorder}
@@ -93,51 +85,6 @@ export default function App() {
         setVoice={setVoice}
       />
     </Shell>
-  );
-}
-
-function Metric({ label, value, unit }: { label: string; value: string; unit?: string }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-xs font-semibold uppercase tracking-widest text-muted">{label}</p>
-      <p className="mt-2 break-words text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
-        {value}
-        <span className="ml-1 text-sm font-medium text-muted">{unit}</span>
-      </p>
-    </div>
-  );
-}
-function SplitTable({ draft, unit }: { draft: Draft; unit: Unit }) {
-  const list = splits(draft.points, unit);
-  return (
-    <Card>
-      <h2 className="mb-3 text-lg font-bold">Splits</h2>
-      {list.length ? (
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-line text-muted">
-              <th className="py-2">{unit === "km" ? "Kilometre" : "Mile"}</th>
-              <th>Time</th>
-              <th>Pace /{unit}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((s) => (
-              <tr className="border-b border-line" key={s.number}>
-                <td className="py-3">{s.number}</td>
-                <td>{clock(s.ms)}</td>
-                <td>{s.pace}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p className="text-sm text-muted">Your first split appears after one {unit === "km" ? "kilometre" : "mile"}.</p>
-      )}
-      {draft.gaps > 0 && (
-        <p className="mt-3 text-sm text-muted">GPS gaps occurred. Distance may be understated and pace/splits affected.</p>
-      )}
-    </Card>
   );
 }
 
@@ -225,7 +172,14 @@ function Workspace({
     }
   };
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 sm:py-10">
+    <div
+      className={
+        path === "/"
+          ? // Record fills one phone screen below 1024px: the page itself never scrolls.
+            "mx-auto flex h-[calc(100dvh-4rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full max-w-5xl flex-col gap-3 px-3 py-3 sm:px-6 lg:block lg:h-auto lg:space-y-6 lg:py-10"
+          : "mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 sm:py-10"
+      }
+    >
       {recorder.running && path !== "/" && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-accent-soft p-4">
           <span className="font-semibold">
@@ -235,12 +189,12 @@ function Workspace({
         </div>
       )}
       {notice && (
-        <p role="status" className="rounded-xl bg-accent-soft p-4 text-sm">
+        <p role="status" className="shrink-0 rounded-xl bg-accent-soft p-3 text-sm">
           {notice}
         </p>
       )}
       {recorder.error && (
-        <p role="alert" className="rounded-xl border border-danger p-4 text-sm text-danger">
+        <p role="alert" className="shrink-0 rounded-xl border border-danger p-3 text-sm text-danger">
           {recorder.error}
         </p>
       )}
@@ -329,110 +283,29 @@ function Workspace({
           </div>
         </ProfilePage>
       ) : (
-        <>
-          <PageHeader
-            title={draft ? "Your run" : "Ready for a run?"}
-            description={draft ? "One step at a time." : "A little movement. A route of your own."}
-          />
-          <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
-            <div className="space-y-5">
-              {following && <WorkoutGuide workout={following} ms={duration} meters={total} pace={recentPace(draft, recorder.now)} unit={unit} running={recorder.running} voice={voice} />}
-              {!draft && offered && (
-                <NextWorkout workout={offered} disabled={recorder.busy} onStart={() => startWorkout(offered)} />
-              )}
-              <Card>
-                <div className="mb-6 flex items-center justify-between gap-2">
-                  <span className="rounded-full bg-accent-soft px-3 py-1 text-xs font-bold uppercase tracking-widest text-accent">
-                    {recorder.running ? "Recording" : draft ? "Paused" : "Ready"}
-                  </span>
-                  <span className="text-xs text-muted">Stays on this device</span>
-                </div>
-                <div className="mb-7">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-muted">Distance</p>
-                  <p className="mt-1 text-6xl font-bold tabular-nums tracking-tighter sm:text-7xl">
-                    {(total / unitMeters(unit)).toFixed(2)}
-                    <span className="ml-2 text-xl font-medium text-muted">{unit}</span>
-                  </p>
-                </div>
-                <div className="grid grid-cols-2 gap-5">
-                  <Metric label="Duration" value={clock(duration)} />
-                  <Metric label="Average pace" value={pace(duration, total, unit)} unit={`/${unit}`} />
-                  <Metric label="Current pace" value={currentPace(draft, recorder.now, unit)} unit={`/${unit}`} />
-                  <Metric label="Complete splits" value={String(splits(draft?.points ?? [], unit).length)} />
-                </div>
-                <p role="status" className="mt-5 min-h-10 text-sm text-muted">
-                  {recorder.state.message}
-                </p>
-                <div className="mt-4 flex flex-wrap gap-3">
-                  {recorder.running ? (
-                    <Button className="min-h-14 flex-1" onClick={() => recorder.stop()}>
-                      Pause
-                    </Button>
-                  ) : (
-                    <Button className="min-h-14 flex-1" disabled={recorder.busy} onClick={() => recorder.start()}>
-                      {draft ? "Resume" : "Start run"}
-                    </Button>
-                  )}
-                  {draft && (
-                    <Button
-                      className="min-h-14 flex-1"
-                      variant="secondary"
-                      disabled={recorder.busy}
-                      onClick={() => {
-                        recorder.stop();
-                        setTitle(
-                          following
-                            ? `Week ${following.week} · ${following.title}`
-                            : `Run · ${new Date(draft.started).toLocaleDateString()}`,
-                        );
-                        setFinishOpen(true);
-                      }}
-                    >
-                      Finish
-                    </Button>
-                  )}
-                </div>
-                {draft && (
-                  <Button
-                    variant="ghost"
-                    className="mt-2"
-                    disabled={recorder.busy}
-                    onClick={() => {
-                      recorder.stop();
-                      setDiscardOpen(true);
-                    }}
-                  >
-                    Discard draft
-                  </Button>
-                )}
-              </Card>
-              <div className="rounded-xl border border-line p-4 text-sm leading-6 text-muted">
-                <strong className="text-ink">Keep this app open.</strong> Locking your phone or switching apps pauses
-                your run.{" "}
-                {recorder.running
-                  ? recorder.awake
-                    ? "Screen-awake is active."
-                    : "Keep your screen on; screen-awake is unavailable or disabled."
-                  : "We will request location when you start."}
-              </div>
-            </div>
-            <div className="space-y-5">
-              <RouteMap points={draft?.points ?? []} follow={recorder.running} />
-              {draft ? (
-                <SplitTable draft={draft} unit={unit} />
-              ) : (
-                <Card>
-                  <p className="text-xs font-semibold uppercase tracking-widest text-accent">Your next finish line</p>
-                  <h2 className="mt-2 text-xl font-bold">Just get out there.</h2>
-                  <p className="mt-2 text-sm leading-6 text-muted">
-                    Track your route, find your pace and build a history of showing up. Or pick a goal in Plan and
-                    follow a guided beginner programme.
-                  </p>
-                </Card>
-              )}
-            </div>
-          </div>
-        </>
+        <RecordScreen
+          recorder={recorder}
+          unit={unit}
+          voice={voice}
+          following={following}
+          offered={offered}
+          privacy="Stays on this device"
+          onStartWorkout={startWorkout}
+          onFinish={() => {
+            if (!draft) return;
+            recorder.stop();
+            setTitle(
+              following
+                ? `Week ${following.week} · ${following.title}`
+                : `Run · ${new Date(draft.started).toLocaleDateString()}`,
+            );
+            setFinishOpen(true);
+          }}
+          onDiscard={() => {
+            recorder.stop();
+            setDiscardOpen(true);
+          }}
+        />
       )}
       <Modal open={finishOpen} onClose={() => !recorder.busy && setFinishOpen(false)} title="Finish your run">
         <form
@@ -582,7 +455,7 @@ function History({ unit, runs }: { unit: Unit; runs: ReturnType<typeof useRuns> 
               {clock(selected.draft.updated - selected.draft.started)} · Paused{" "}
               {clock(selected.draft.updated - selected.draft.started - selected.draft.activeMs)}
             </p>
-            <RouteMap points={selected.draft.points} />
+            <RouteMapLazy points={selected.draft.points} />
             <SplitTable draft={selected.draft} unit={unit} />
             <Button variant="secondary" onClick={() => downloadGpx(selected.title, selected.draft)}>
               Export GPX

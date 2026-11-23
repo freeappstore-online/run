@@ -92,18 +92,18 @@ export function NextWorkout({
   disabled: boolean;
 }) {
   return (
-    <Card>
+    <Card padding="1rem">
       <p className="text-xs font-bold uppercase tracking-widest text-accent">
         Next up · Week {workout.week} · {dayLabel(workout.date)}
       </p>
-      <h2 className="mt-2 text-xl font-bold">{workout.title}</h2>
+      <h2 className="mt-1 text-lg font-bold sm:mt-2 sm:text-xl">{workout.title}</h2>
       <p className="mt-1 text-sm text-muted">
         {workout.summary} · {minutes(workout)} min
       </p>
-      <div className="my-4">
+      <div className="my-4 hidden sm:block">
         <StepList workout={workout} />
       </div>
-      <Button className="min-h-14 w-full" disabled={disabled} onClick={onStart}>
+      <Button className="mt-3 min-h-12 w-full sm:mt-0 sm:min-h-14" disabled={disabled} onClick={onStart}>
         Start workout
       </Button>
     </Card>
@@ -185,31 +185,31 @@ export function WorkoutGuide({
   }, [hint, running, ms, voice]);
   const show = (seconds: number) => pace(seconds * 1000, 1000, unit);
   return (
-    <Card>
+    <Card padding="1rem">
       <p className="text-xs font-bold uppercase tracking-widest text-accent">
         Week {workout.week} · {workout.title}
       </p>
       {complete ? (
         <>
-          <p className="mt-3 text-3xl font-bold">Workout complete</p>
+          <p className="mt-2 text-2xl font-bold sm:text-3xl">Workout complete</p>
           <p className="mt-1 text-sm text-muted">Great work. Finish and save your run when you're ready.</p>
         </>
       ) : (
         <>
-          <div className="mt-3 flex items-end justify-between gap-4">
+          <div className="mt-2 flex items-end justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-3xl font-bold">{stepLabel(step)}</p>
+              <p className="text-2xl font-bold sm:text-3xl">{stepLabel(step)}</p>
               <p className="mt-1 text-sm text-muted">
                 {next ? `Next: ${stepLabel(next)} ${mmss(next.seconds * 1000)}` : "Last step"}
               </p>
             </div>
-            <p aria-label="Step time remaining" className="text-5xl font-bold tabular-nums tracking-tighter">
+            <p aria-label="Step time remaining" className="text-4xl font-bold tabular-nums tracking-tighter sm:text-5xl">
               {mmss(remaining)}
             </p>
           </div>
-          <p className="mt-3 text-sm">{effort(step)}</p>
+          <p className="mt-2 text-xs sm:text-sm">{effort(step)}</p>
           {range && (
-            <p className="mt-2 flex flex-wrap gap-x-4 text-sm tabular-nums">
+            <p className="mt-1 flex flex-wrap gap-x-4 text-sm tabular-nums">
               <span>
                 Target{" "}
                 <strong>
@@ -233,11 +233,11 @@ export function WorkoutGuide({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.min(100, Math.round((ms / total) * 100))}
-        className="mt-4 h-2 overflow-hidden rounded-full bg-line"
+        className="mt-3 h-2 overflow-hidden rounded-full bg-line"
       >
         <div className="h-full bg-accent" style={{ width: `${Math.min(100, (ms / total) * 100)}%` }} />
       </div>
-      <p className="mt-2 text-xs text-muted">
+      <p className="mt-1 text-xs text-muted">
         Step {Math.min(index + 1, steps.length)} of {steps.length}
       </p>
     </Card>
@@ -515,24 +515,32 @@ export function PlanPage({
       {Array.from({ length: weeks }, (_, i) => i + 1).map((week) => {
         const from = addDays(plan.start, (week - 1) * 7);
         const current = today >= from && today <= addDays(from, 6);
+        const list = workouts.filter((w) => w.week === week);
+        const finished = list.filter((w) => done.has(w.id)).length;
+        // Mobile-first: only this week (or week 1 before the plan starts) is open.
+        const open = current || (week === 1 && today < plan.start);
         return (
           <section key={week} aria-label={`Week ${week}`}>
-            <Card>
-              <div className="mb-3 flex items-baseline justify-between gap-3">
-                <h2 className="text-lg font-bold">Week {week}</h2>
-                <span className="text-xs text-muted">
-                  {current && (
-                    <span className="mr-2 rounded-full bg-accent-soft px-2 py-0.5 font-bold uppercase tracking-widest text-accent">
-                      This week
+            <Card padding="1rem">
+              <details open={open} className="group">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+                  <h2 className="text-lg font-bold">Week {week}</h2>
+                  <span className="flex items-center gap-2 text-xs text-muted">
+                    {current && (
+                      <span className="rounded-full bg-accent-soft px-2 py-0.5 font-bold uppercase tracking-widest text-accent">
+                        This week
+                      </span>
+                    )}
+                    <span className="tabular-nums">
+                      {dayLabel(from)} · {finished}/{list.length}
                     </span>
-                  )}
-                  {dayLabel(from)}
-                </span>
-              </div>
-              <ul className="m-0 list-none divide-y divide-line p-0">
-                {workouts
-                  .filter((w) => w.week === week)
-                  .map((w) => (
+                    <span aria-hidden="true" className="transition-transform group-open:rotate-180">
+                      ▾
+                    </span>
+                  </span>
+                </summary>
+              <ul className="m-0 mt-2 list-none divide-y divide-line p-0">
+                {list.map((w) => (
                     <li key={w.id} className="flex items-center justify-between gap-3 py-3">
                       <div className="min-w-0">
                         <p className="font-semibold">
@@ -556,6 +564,7 @@ export function PlanPage({
                     </li>
                   ))}
               </ul>
+              </details>
             </Card>
           </section>
         );

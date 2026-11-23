@@ -16,6 +16,8 @@ const FILES = [
   "web/src/RouteMap.tsx",
   "web/src/useRecorder.ts",
   "web/src/PlanPage.tsx",
+  "web/src/RecordScreen.tsx",
+  "web/src/IconNav.tsx",
   "tests/engine.test.mjs",
   "tests/plan.test.mjs",
   "scripts/sync-core.mjs",

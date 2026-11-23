@@ -157,3 +157,36 @@ test("10K plan with a 5K time shows pace targets and nudges a runner going too f
   expect(await noScroll(page)).toBe(true);
   await page.screenshot({ path: `test-results/pace-${test.info().project.name}.png`, fullPage: true });
 });
+
+test("mobile-first: Record fits a 375×667 screen idle and mid-workout, with icon navigation", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await setup(page);
+  await page.clock.install();
+  const fits = () =>
+    page.evaluate(() => {
+      const root = document.scrollingElement!;
+      return root.scrollHeight <= innerHeight + 1 && root.scrollWidth <= innerWidth;
+    });
+  await page.goto("/plan");
+  const nav = page.getByRole("navigation", { name: "Main" });
+  for (const label of ["Record", "Plan", "History"]) await expect(nav.getByRole("link", { name: label })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Menu" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Build my plan" }).click();
+  await expect(page.getByRole("region", { name: "Week 2" }).getByRole("button", { name: /^Start/ }).first()).toBeHidden();
+  await nav.getByRole("link", { name: "Record" }).click();
+  await expect(page.getByRole("button", { name: "Start workout" })).toBeVisible();
+  expect(await fits()).toBe(true);
+  await page.screenshot({ path: "test-results/fit-idle.png" });
+  await page.getByRole("button", { name: "Start workout" }).click();
+  await move(page);
+  await expect(page.getByLabel("Step time remaining")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeInViewport();
+  expect(await fits()).toBe(true);
+  await page.screenshot({ path: "test-results/fit-running.png" });
+  await page.getByRole("tab", { name: "Map" }).click();
+  await expect(page.getByRole("region", { name: "Run route map" })).toBeVisible();
+  await page.getByRole("tab", { name: "Splits" }).click();
+  await expect(page.getByText(/Your first split appears/)).toBeVisible();
+  expect(await fits()).toBe(true);
+  await expect(nav.getByRole("img", { name: "Run recording" })).toBeVisible();
+});
