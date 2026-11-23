@@ -193,7 +193,7 @@ test("mobile-first: Record fits a 375×667 screen idle and mid-workout, with ico
 
 // Locked-screen catch-up through the recorder's GapSource seam, with a fake source (web/e2e/harness.tsx).
 const HARNESS = "http://127.0.0.1:4196/e2e/harness.html";
-type Gap = { covers: boolean; behavior: "fixes" | "empty" | "reject"; calls: unknown[] };
+type Gap = { covers: boolean; behavior: "fixes" | "empty" | "reject" | "two-phones"; calls: unknown[] };
 const gapSet = (page: Page, patch: Partial<Gap>) => page.evaluate((p) => Object.assign((window as any).gap, p), patch);
 const gapCalls = (page: Page): Promise<number> => page.evaluate(() => (window as any).gap.calls.length);
 const setHidden = (page: Page, hidden: boolean) =>
@@ -288,6 +288,17 @@ test("a failed or empty fetch leaves the run paused with hiddenAt kept, and a la
   await expect(page.getByText("recorded while locked", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
   expect((await stored(page)).hiddenAt).toBeUndefined();
+});
+
+test("a retry never mixes two phones' streams into the route", async ({ page }) => {
+  await recording(page);
+  await gapSet(page, { behavior: "two-phones" });
+  await lockFor(page);
+  await page.clock.runFor(2500);
+  await expect(page.getByText("recorded while locked", { exact: false })).toBeVisible();
+  expect(await gapCalls(page)).toBe(2);
+  const lats = new Set((await stored(page)).points.map((p: { lat: number }) => p.lat));
+  expect([...lats]).toEqual([-37.81]);
 });
 
 test("after a reload, Resume tries the locked-screen catch-up first", async ({ page }) => {

@@ -9,7 +9,7 @@ import type { GapSource } from "../src/engine";
 
 type Control = {
   covers: boolean;
-  behavior: "fixes" | "empty" | "reject";
+  behavior: "fixes" | "empty" | "reject" | "two-phones";
   calls: { since: number; until: number }[];
 };
 const gap: Control = ((window as unknown as { gap: Control }).gap = { covers: true, behavior: "fixes", calls: [] });
@@ -21,14 +21,17 @@ const source: GapSource = {
     gap.calls.push({ since, until });
     if (gap.behavior === "reject") throw Error("offline");
     if (gap.behavior === "empty") return { fixes: [], complete: true };
-    const fixes = Array.from({ length: 30 }, (_, i) => ({
-      lat: -37.81,
+    // Two enrolled phones: the first read is incomplete and its longest stream is phone A,
+    // 1 km north; by the retry phone B (the runner's) has more points.
+    const phoneA = gap.behavior === "two-phones" && gap.calls.length === 1;
+    const fixes = Array.from({ length: phoneA ? 10 : 30 }, (_, i) => ({
+      lat: phoneA ? -37.8 : -37.81,
       lng: 144.96 + (50 + i * 6) / 87850,
       at: since + 2000 * (i + 1),
       accuracy: 5,
       altitude: null,
     })).filter((f) => f.at <= until);
-    return { fixes, complete: true };
+    return { fixes, complete: !phoneA };
   },
 };
 

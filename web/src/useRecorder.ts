@@ -41,8 +41,10 @@ async function fetchWindow(source: GapSource, since: number): Promise<Fix[]> {
     const first = await attempt();
     if (!first.behind) return first.fixes;
     await Promise.race([new Promise((r) => setTimeout(r, RETRY_DELAY)), aborted]);
-    const second = await attempt().catch(() => ({ fixes: [] as Fix[] }));
-    return [...first.fixes, ...second.fixes];
+    // The retry re-reads the whole window, so never merge the two reads: each may
+    // have chosen a different phone's stream. Keep the first only if the retry fell short.
+    const second = await attempt().catch(() => null);
+    return second && second.fixes.length >= first.fixes.length ? second.fixes : first.fixes;
   } finally {
     clearTimeout(timer);
     control.abort();
