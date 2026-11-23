@@ -8,7 +8,7 @@ import {
   dayLabel,
   isoDay,
   mmss,
-  monday,
+  planFrom,
   stepAt,
   stepLabel,
   totalMs,
@@ -159,6 +159,7 @@ export function WorkoutGuide({
   );
 }
 
+const field = "min-h-11 rounded-lg border border-line bg-paper px-3";
 function PlanSetup({
   initial,
   onSave,
@@ -169,23 +170,24 @@ function PlanSetup({
   onCancel?: () => void;
 }) {
   const [goal, setGoal] = useState<Goal>(initial?.goal ?? "5k"),
+    [firstStage, setFirstStage] = useState(initial?.firstStage ?? 1),
     [days, setDays] = useState<number[]>(initial?.days ?? [1, 3, 5]),
+    [longDay, setLongDay] = useState(initial?.longDay ?? 5),
+    [raceDate, setRaceDate] = useState(initial?.raceDate ?? ""),
     [later, setLater] = useState(false);
-  const thisWeek = monday(new Date());
+  const result = planFrom(
+    { goal, firstStage, days, longDay: days.includes(longDay) ? longDay : days.at(-1)!, raceDate, later },
+    new Date(),
+    "preview",
+    0,
+  );
+  const problem = "error" in result ? result.error : "";
   return (
     <form
       className="space-y-6"
       onSubmit={(e) => {
         e.preventDefault();
-        if (days.length !== 3) return;
-        onSave({
-          version: 1,
-          id: crypto.randomUUID(),
-          goal,
-          start: later ? addDays(thisWeek, 7) : thisWeek,
-          days,
-          created: Date.now(),
-        });
+        if ("plan" in result) onSave({ ...result.plan, id: crypto.randomUUID(), created: Date.now() });
       }}
     >
       <fieldset className="space-y-3">
@@ -200,7 +202,10 @@ function PlanSetup({
               name="goal"
               className="mt-1 h-5 w-5 accent-accent"
               checked={goal === key}
-              onChange={() => setGoal(key)}
+              onChange={() => {
+                setGoal(key);
+                setFirstStage(1);
+              }}
             />
             <span>
               <span className="block font-bold">
@@ -211,9 +216,27 @@ function PlanSetup({
           </label>
         ))}
       </fieldset>
+      <label className="block">
+        <span className="mb-2 block text-lg font-bold">Where are you now?</span>
+        <select
+          aria-label="Where are you now?"
+          className={`${field} w-full`}
+          value={firstStage}
+          onChange={(e) => setFirstStage(Number(e.target.value))}
+        >
+          {GOALS[goal].levels.map((level) => (
+            <option key={level.stage} value={level.stage}>
+              {level.label}
+              {level.stage > 1 ? ` (start at week ${level.stage})` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
       <fieldset>
-        <legend className="mb-1 text-lg font-bold">Pick 3 run days</legend>
-        <p className="mb-3 text-sm text-muted">Leave a rest day between runs when you can.</p>
+        <legend className="mb-1 text-lg font-bold">Pick 3 or 4 run days</legend>
+        <p className="mb-3 text-sm text-muted">
+          Leave a rest day between runs when you can. A 4th day adds an optional easy session.
+        </p>
         <div className="grid grid-cols-7 gap-1.5">
           {WEEKDAYS.map((name, day) => (
             <label
@@ -227,9 +250,7 @@ function PlanSetup({
                 checked={days.includes(day)}
                 onChange={(e) =>
                   setDays((list) =>
-                    e.target.checked
-                      ? [...list, day].sort((a, b) => a - b)
-                      : list.filter((d) => d !== day),
+                    e.target.checked ? [...list, day].sort((a, b) => a - b) : list.filter((d) => d !== day),
                   )
                 }
               />
@@ -237,26 +258,63 @@ function PlanSetup({
             </label>
           ))}
         </div>
-        {days.length !== 3 && (
-          <p role="status" className="mt-2 text-sm text-danger">
-            Choose exactly 3 days ({days.length} selected).
-          </p>
-        )}
       </fieldset>
       <label className="flex min-h-12 items-center justify-between gap-4">
-        <span className="text-lg font-bold">Start</span>
+        <span>
+          <span className="block text-lg font-bold">Long run day</span>
+          <span className="text-sm text-muted">Your key session each week{raceDate ? ", set by race day" : ""}.</span>
+        </span>
         <select
-          aria-label="Start"
-          className="min-h-11 rounded-lg border border-line bg-paper px-4"
-          value={later ? "next" : "this"}
-          onChange={(e) => setLater(e.target.value === "next")}
+          aria-label="Long run day"
+          className={field}
+          disabled={!!raceDate}
+          value={"plan" in result ? result.plan.longDay : longDay}
+          onChange={(e) => setLongDay(Number(e.target.value))}
         >
-          <option value="this">This week</option>
-          <option value="next">Next week</option>
+          {days.map((day) => (
+            <option key={day} value={day}>
+              {WEEKDAYS[day]}
+            </option>
+          ))}
         </select>
       </label>
+      <label className="flex min-h-12 items-center justify-between gap-4">
+        <span>
+          <span className="block text-lg font-bold">Race date</span>
+          <span className="text-sm text-muted">Optional. We'll schedule the plan to finish on it.</span>
+        </span>
+        <input
+          type="date"
+          aria-label="Race date"
+          className={field}
+          value={raceDate}
+          min={isoDay(new Date())}
+          onChange={(e) => setRaceDate(e.target.value)}
+        />
+      </label>
+      {raceDate ? (
+        "plan" in result && <p className="text-sm text-muted">Starts the week of {dayLabel(result.plan.start)}.</p>
+      ) : (
+        <label className="flex min-h-12 items-center justify-between gap-4">
+          <span className="text-lg font-bold">Start</span>
+          <select
+            aria-label="Start"
+            className={field}
+            value={later ? "next" : "this"}
+            onChange={(e) => setLater(e.target.value === "next")}
+          >
+            <option value="this">This week</option>
+            <option value="next">Next week</option>
+          </select>
+        </label>
+      )}
+      {problem && (
+        <p role="status" className="text-sm text-danger">
+          {problem}
+        </p>
+      )}
       <div className="flex flex-wrap gap-3">
-        <Button type="submit" disabled={days.length !== 3}>
+        <Button type="submit" disabled={!!problem}>
           Build my plan
         </Button>
         {onCancel && (
@@ -316,13 +374,15 @@ export function PlanPage({
         </Card>
       </>
     );
-  const weeks = GOALS[plan.goal].weeks;
+  const weeks = workouts.at(-1)!.week;
   const completed = workouts.filter((w) => done.has(w.id)).length;
   return (
     <>
       <PageHeader
         title={`${GOALS[plan.goal].name} plan`}
-        description={`${weeks} weeks · 3 runs a week · ends ${dayLabel(workouts.at(-1)!.date)}`}
+        description={`${weeks} weeks · ${plan.days.length} runs a week · ${
+          plan.raceDate ? "race day" : "ends"
+        } ${dayLabel(workouts.at(-1)!.date)}`}
         actions={
           <Button variant="secondary" onClick={() => setEditing(true)}>
             Change plan

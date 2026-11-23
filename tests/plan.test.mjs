@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPlan, parsePlan, stepAt, totalMs, cue, completes, monday, addDays, GOALS } from "../web/src/plan.ts";
+import { buildPlan, parsePlan, planFrom, stepAt, totalMs, cue, completes, monday, addDays, GOALS } from "../web/src/plan.ts";
 import { emptySession, resume, restore } from "../web/src/engine.ts";
 
-const settings = (goal) => ({ version: 1, id: "p1", goal, start: "2026-11-23", days: [1, 3, 5], created: 1 });
+const v1 = (goal) => ({ version: 1, id: "p1", goal, start: "2026-11-23", days: [1, 3, 5], created: 1 });
+const settings = (goal) => parsePlan(v1(goal));
 
 test("plans have three dated workouts a week with stable ids", () => {
   for (const goal of ["5k", "10k"]) {
@@ -75,4 +76,54 @@ test("a workout completes at 90% of its time, or at a race session's distance", 
   assert.equal(buildPlan(settings("10k")).at(-1).target, 10000);
   assert.equal(cue({ kind: "fast", seconds: 60 }), "Run fast for 1 minute");
   assert.equal(cue({ kind: "easy", seconds: 120 }), "Run easy for 2 minutes");
+});
+
+test("version 1 plans upgrade without changing any workout id, date or session", () => {
+  const plan = settings("10k");
+  assert.equal(plan.version, 2);
+  assert.equal(plan.longDay, 5);
+  assert.equal(plan.firstStage, 1);
+  const workouts = buildPlan(plan);
+  assert.deepEqual(workouts.slice(0, 3).map((w) => [w.id, w.date, w.title]), [
+    ["p1:1-1", "2026-11-24", "Easy run"],
+    ["p1:1-2", "2026-11-26", "Intervals"],
+    ["p1:1-3", "2026-11-28", "Long run"],
+  ]);
+  assert.equal(parsePlan({ ...v1("5k"), days: [1, 3, 5, 6] }), null, "version 1 is always 3 days");
+});
+
+const choices = (over = {}) => ({ goal: "10k", firstStage: 1, days: [1, 3, 5], longDay: 5, raceDate: "", later: false, ...over });
+const today = new Date(2026, 10, 25); // Wed 25 Nov 2026
+
+test("level, 4th day and long-run day shape the schedule", () => {
+  const { plan } = planFrom(choices({ firstStage: 3, days: [0, 2, 4, 6], longDay: 0 }), today, "p2", 1);
+  assert.equal(plan.start, "2026-11-23");
+  const workouts = buildPlan(plan);
+  assert.equal(workouts.length, 6 * 4, "stages 3-8, four sessions each");
+  assert.deepEqual(workouts.slice(0, 4).map((w) => [w.week, w.stage, w.date, w.title]), [
+    [1, 3, "2026-11-23", "Long run"],
+    [1, 3, "2026-11-25", "Easy run"],
+    [1, 3, "2026-11-27", "Intervals"],
+    [1, 3, "2026-11-29", "Recovery run"],
+  ]);
+  assert.match(workouts[3].summary, /^Optional/);
+  assert.ok(workouts.slice(-4).some((w) => w.title === "Your 10K"));
+  assert.equal(planFrom(choices({ later: true }), today, "p", 1).plan.start, "2026-11-30");
+  assert.match(planFrom(choices({ days: [1, 3] }), today, "p", 1).error, /3 or 4/);
+  assert.match(planFrom(choices({ days: [0, 1, 2, 3, 4] }), today, "p", 1).error, /3 or 4/);
+});
+
+test("a race date schedules the plan backwards so the race lands on race day", () => {
+  const { plan } = planFrom(choices({ goal: "5k", days: [1, 3, 6], raceDate: "2027-02-28" }), today, "p3", 1);
+  assert.equal(plan.longDay, 6, "race day is the long-run day");
+  const workouts = buildPlan(plan);
+  const race = workouts.find((w) => w.title === "Your first 5K");
+  assert.equal(race.date, "2027-02-28");
+  assert.equal(race.target, 5000);
+  assert.equal(workouts.at(-1).date, "2027-02-28");
+  assert.equal(parsePlan(JSON.stringify(plan)).raceDate, "2027-02-28");
+  assert.match(planFrom(choices({ raceDate: "2027-02-28" }), today, "p", 1).error, /Sun.*Add Sun/);
+  assert.match(planFrom(choices({ days: [1, 3, 6], raceDate: "2026-12-27" }), today, "p", 1).error, /too soon/);
+  assert.ok(planFrom(choices({ days: [1, 3, 6], firstStage: 3, raceDate: "2027-01-03" }), today, "p", 1).plan);
+  assert.match(planFrom(choices({ raceDate: "2026-11-20" }), today, "p", 1).error, /future/);
 });

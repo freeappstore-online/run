@@ -1,11 +1,11 @@
 {
   "web/src/engine.ts": "bba1e1d9ca4485ee22ba2896dc0f0d5084999b0ff0a9c5b4d41d0e8429277ffb",
-  "web/src/plan.ts": "b55f25f81a4086bf3a78e7dbf90dfe59ee1e800a51abc1b2bb3e378f5b616032",
+  "web/src/plan.ts": "3f4b4eec75531616b31487afe452281536fc9bd86f5cf912f7db4d14e9dd9e8e",
   "web/src/gpx.ts": "5ed2b089edbb5eba07f95bd9fee3e1b5d72c124c3ac4628630fae2a6f7d96078",
   "web/src/RouteMap.tsx": "cad6cc256c0d1f71d0ec76175636dbeff61f7f4f80f03a28d9496d6818047a54",
   "web/src/useRecorder.ts": "740c74e4c0fec10ead2a75b4bff14d66ea8c39a9b51085edacf2954405e8834f",
-  "web/src/PlanPage.tsx": "0e97e19b3dc69e0265250f3bfdac42ce763e122e77d7fb50166903045cb41ffa",
+  "web/src/PlanPage.tsx": "819ef70ae8b7b843bc841560b0d9fec68b5e149c2f4ec5146317cdfab5924757",
   "tests/engine.test.mjs": "e48e46cb04321f3cc1e901946cb6bf1cee048f9cf9d15d2c81759f157ce29a2c",
-  "tests/plan.test.mjs": "1ef3e3ab57f1ae38b739ae7a9a9dd1cae5babffc042877daeb515e41fd08de4c",
+  "tests/plan.test.mjs": "3c566c4494f8f592acc22c20c72cd4b25287a7826dd5483b0de37a2feebdd28c",
   "scripts/sync-core.mjs": "19b5e650d6240da85074323c9e6eb30a0ac95423cbb33c74906b6b7dbb54db3b"
 }

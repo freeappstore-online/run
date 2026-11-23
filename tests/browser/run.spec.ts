@@ -64,9 +64,21 @@ test("plan, guided workout with cues, completion tick and profile prefs", async 
   await page.clock.install();
   await page.goto("/plan");
   await expect(page.getByRole("heading", { name: "Your training plan" })).toBeVisible();
-  await page.getByText("Sat", { exact: true }).click();
+  await page.locator("label").filter({ hasText: /^Sat$/ }).click();
+  await expect(page.getByText("Choose 3 or 4 run days (2 selected)")).toBeVisible();
   await expect(page.getByRole("button", { name: "Build my plan" })).toBeDisabled();
-  await page.getByText("Sun", { exact: true }).click();
+  await page.locator("label").filter({ hasText: /^Sun$/ }).click();
+  await expect(page.getByLabel("Long run day")).toHaveValue("6");
+  // A race too soon for a beginner is refused; a later one schedules the plan back from race day.
+  await page.getByLabel("Race date").fill("2027-01-03");
+  await expect(page.getByText(/too soon/)).toBeVisible();
+  await page.getByLabel("Where are you now?").selectOption({ label: "I can run 15 minutes without stopping (start at week 6)" });
+  await expect(page.getByText(/^Starts the week of/)).toBeVisible();
+  await expect(page.getByLabel("Long run day")).toBeDisabled();
+  expect(await noScroll(page)).toBe(true);
+  await page.screenshot({ path: `test-results/setup-${test.info().project.name}.png`, fullPage: true });
+  await page.getByLabel("Race date").fill("");
+  await page.getByLabel("Where are you now?").selectOption({ label: "I'm new to running" });
   await page.getByRole("button", { name: "Build my plan" }).click();
   await expect(page.getByText("0 of 27 workouts")).toBeVisible();
   expect(await noScroll(page)).toBe(true);
