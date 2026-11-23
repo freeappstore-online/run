@@ -267,24 +267,24 @@ test("privacy: the source is never asked on load, after an explicit Pause, or fo
   expect(await gapCalls(page)).toBe(0);
 });
 
-test("a failed or empty fetch leaves the run paused with hiddenAt kept, and a later return retries", async ({ page }) => {
+test("a failed fetch keeps the run paused with hiddenAt and retries; an empty answer continues from now", async ({ page }) => {
   await recording(page);
   await gapSet(page, { behavior: "reject" });
   await lockFor(page);
-  await expect(page.getByText("No locked-screen route", { exact: false })).toBeVisible();
+  await expect(page.getByText("could not be fetched", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
   expect((await stored(page)).hiddenAt).toBeGreaterThan(0);
   expect(await gapCalls(page)).toBe(1);
+  // The phone answers with nothing usable (standing still): recording continues, the gap stays a gap.
   await gapSet(page, { behavior: "empty" });
   await setHidden(page, true);
   await setHidden(page, false);
   await page.clock.runFor(2500);
-  await expect(page.getByText("No locked-screen route", { exact: false })).toBeVisible();
-  expect((await stored(page)).hiddenAt).toBeGreaterThan(0);
-  expect(await gapCalls(page)).toBe(3);
+  await expect(page.getByText("Recording continues from now", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  expect((await stored(page)).hiddenAt).toBeUndefined();
   await gapSet(page, { behavior: "fixes" });
-  await setHidden(page, true);
-  await setHidden(page, false);
+  await lockFor(page);
   await expect(page.getByText("recorded while locked", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
   expect((await stored(page)).hiddenAt).toBeUndefined();
@@ -301,29 +301,16 @@ test("a retry never mixes two phones' streams into the route", async ({ page }) 
   expect([...lats]).toEqual([-37.81]);
 });
 
-test("after a reload, Resume tries the locked-screen catch-up first", async ({ page }) => {
+test("after a reload with a hidden recording draft, catch-up runs by itself", async ({ page }) => {
   await recording(page);
   await gapSet(page, { behavior: "reject" });
   await lockFor(page);
-  await expect(page.getByText("No locked-screen route", { exact: false })).toBeVisible();
+  await expect(page.getByText("could not be fetched", { exact: false })).toBeVisible();
   const { hiddenAt } = await stored(page);
   await page.reload();
   await page.clock.setSystemTime(hiddenAt + 60000);
   await page.clock.runFor(1000);
-  expect(await gapCalls(page)).toBe(0);
-  await page.getByRole("button", { name: "Resume", exact: true }).click();
   await expect(page.getByText("recorded while locked", { exact: false })).toBeVisible();
   expect(await gapCalls(page)).toBe(1);
-  expect((await stored(page)).hiddenAt).toBeUndefined();
-  // And when it adds nothing, Resume continues from now.
-  await gapSet(page, { behavior: "empty" });
-  await setHidden(page, true);
-  await page.clock.runFor(30000);
-  await setHidden(page, false);
-  await page.clock.runFor(2500);
-  await expect(page.getByText("No locked-screen route", { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: "Resume", exact: true }).click();
-  await page.clock.runFor(2500);
-  await expect(page.getByText("recording resumed from now", { exact: false })).toBeVisible();
   expect((await stored(page)).hiddenAt).toBeUndefined();
 });

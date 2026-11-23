@@ -21,7 +21,9 @@ const CATCH_UP_TIMEOUT = 8000;
 const RETRY_DELAY = 1500;
 const STALE_NEWEST = 20000;
 const NO_ROUTE =
-  "Paused while locked. No locked-screen route was received. Tap Resume to continue, or reconnect and try again.";
+  "Paused while locked. The locked-screen route could not be fetched. Tap Resume to continue, or reconnect and try again.";
+const NO_LOCKED_ROUTE =
+  "No route came from the phone for the locked time (not moving, or weak GPS). Recording continues from now.";
 
 /** Fetch the locked window within one 8 s budget, retrying once when the source looks incomplete or behind. */
 async function fetchWindow(source: GapSource, since: number): Promise<Fix[]> {
@@ -122,13 +124,22 @@ export function useRecorder(owner: string | null, keepAwake: boolean, source?: G
       setPending(true);
       update({ ...current.current, message: "Adding the route recorded while locked..." });
       try {
-        const fixes = await fetchWindow(src, draft.hiddenAt).catch(() => [] as Fix[]);
-        const result = catchUp(current.current, fixes, Date.now());
+        const fixes = await fetchWindow(src, draft.hiddenAt).catch(() => null);
+        const result = fixes ? catchUp(current.current, fixes, Date.now()) : { added: 0, state: current.current };
         if (result.added > 0) {
           update({ ...result.state, message: "Added the route recorded while locked." });
           // Locked again while fetching: pause once more instead of recording in the background.
           if (document.hidden) update(hideRun(current.current, Date.now(), true));
           return true;
+        }
+        // The phone answered but had no usable route (standing still, or poor indoor fixes):
+        // keep recording from now. The locked stretch stays a gap; nothing is guessed.
+        if (fixes && !document.hidden) {
+          const next = resume(current.current, ownerRef.current, Date.now(), crypto.randomUUID());
+          if (next.draft?.resumed != null) {
+            update({ ...next, message: NO_LOCKED_ROUTE });
+            return true;
+          }
         }
         update({ ...current.current, message: NO_ROUTE });
         return false;
@@ -165,7 +176,14 @@ export function useRecorder(owner: string | null, keepAwake: boolean, source?: G
           );
       } else if (sourceRef.current) retry();
     };
-    const hide = () => stop("Recovered run. Resume explicitly to continue.");
+    // iOS can fire pagehide before (or instead of) visibilitychange when a PWA is backgrounded:
+    // keep the locked stretch for catch-up when a source covers it.
+    const hide = () => {
+      if (sourceRef.current?.covers) {
+        update(hideRun(current.current, Date.now(), true));
+        backup();
+      } else stop("Recovered run. Resume explicitly to continue.");
+    };
     document.addEventListener("visibilitychange", hidden);
     window.addEventListener("pagehide", hide);
     window.addEventListener("online", retry);
@@ -177,6 +195,14 @@ export function useRecorder(owner: string | null, keepAwake: boolean, source?: G
       window.removeEventListener("pagehide", hide);
     };
   }, [update, stop, backup, catchUpNow]);
+  // A source that starts covering while a hidden recording draft waits (iOS reloaded the app, or
+  // the status answer arrived after the page became visible) catches up without a tap.
+  const covers = !!source?.covers;
+  useEffect(() => {
+    const draft = current.current.draft;
+    if (covers && !document.hidden && draft?.hiddenAt != null && draft.resumed === null)
+      void catchUpNow();
+  }, [covers, catchUpNow]);
   const lastOwner = useRef(owner);
   useEffect(() => {
     if (lastOwner.current !== owner) {
@@ -325,7 +351,7 @@ export function useRecorder(owner: string | null, keepAwake: boolean, source?: G
     awake,
     error: error || backupError,
     busy,
-    gap: { covers: !!source?.covers, pending },
+    gap: { covers, pending },
     revision,
     start,
     stop,

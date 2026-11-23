@@ -89,6 +89,7 @@ export default function App() {
         voice={voice}
         setVoice={setVoice}
         offerCompanion={offerCompanion}
+        signedIn={signedIn}
       />
     </Shell>
   );
@@ -132,6 +133,7 @@ function Workspace({
   voice,
   setVoice,
   offerCompanion,
+  signedIn,
 }: {
   path: string;
   recorder: ReturnType<typeof useRecorder>;
@@ -142,6 +144,7 @@ function Workspace({
   voice: boolean;
   setVoice: (value: boolean) => void;
   offerCompanion: boolean;
+  signedIn: boolean;
 }) {
   const { draft } = recorder.state;
   const [finishOpen, setFinishOpen] = useState(false),
@@ -323,6 +326,11 @@ function Workspace({
               <a className="font-semibold text-accent underline" href={COMPANION_LINK}>
                 open the FreeAppStore app
               </a>
+            </p>
+          )}
+          {!signedIn && (
+            <p className="mt-3 text-xs text-muted">
+              Keep recording when locked: sign in, then turn on Run in the FreeAppStore phone app.
             </p>
           )}
         </>
