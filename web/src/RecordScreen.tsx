@@ -207,13 +207,20 @@ export function RecordScreen({
   );
   const hint = wide ? (
     <p className="text-xs leading-5 text-muted">
-      <strong className="text-ink">Keep Run open.</strong> Locking your phone or switching apps pauses the run.{" "}
+      <strong className="text-ink">Keep Run open.</strong>{" "}
+      {recorder.gap.covers
+        ? "Locked-screen recording is on; Run adds the route when you return."
+        : "Locking your phone or switching apps pauses the run."}{" "}
       {recorder.running && (recorder.awake ? "Screen-awake is on." : "Keep your screen on.")}
     </p>
   ) : (
     <p className="truncate text-xs text-muted">
       <strong className="text-ink">Keep Run open:</strong>{" "}
-      {recorder.running && recorder.awake ? "screen-awake is on." : "locking the phone pauses the run."}
+      {recorder.gap.covers
+        ? "locked-screen recording is on; Run adds the route when you return."
+        : recorder.running && recorder.awake
+          ? "screen-awake is on."
+          : "locking the phone pauses the run."}
     </p>
   );
   const splitsView = draft ? (

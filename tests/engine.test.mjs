@@ -5,6 +5,8 @@ import {
   resume,
   ingest,
   pause,
+  hide,
+  catchUp,
   expire,
   distance,
   activeTime,
@@ -104,4 +106,103 @@ test("GPX escapes text and preserves separate segments and timestamps", () => {
   assert.match(xml, /A&amp;B &lt;run&gt;/);
   assert.equal((xml.match(/<trkseg>/g) || []).length, 2);
   assert.match(xml, /2023-11-14T/);
+});
+
+const hiddenRun = () => {
+  let s = feed(feed(feed(start(), 0, 0), 10, 3), 20, 6);
+  return hide(s, origin + 9000, true);
+};
+const locked = (from, to, step = 2, speed = 2.5) => {
+  const out = [];
+  for (let t = from; t <= to; t += step) out.push(fix(20 + (t - 6) * speed, t));
+  return out;
+};
+test("hide marks only a recording draft, and only when a source covers it", () => {
+  const s = feed(start(), 0, 0);
+  const covered = hide(s, origin + 5000, true);
+  assert.equal(covered.draft.hiddenAt, origin + 5000);
+  assert.equal(covered.draft.resumed, null);
+  assert.match(covered.message, /Phone locked/);
+  const plain = hide(s, origin + 5000, false);
+  assert.equal(plain.draft.hiddenAt, undefined);
+  assert.equal(plain.draft.resumed, null);
+  const paused = pause(s, origin + 3000);
+  assert.equal(hide(paused, origin + 5000, true), paused);
+  assert.equal(hide(emptySession(), origin, true).draft, null);
+});
+test("catchUp credits the locked time, appends the window and clears hiddenAt", () => {
+  const h = hiddenRun();
+  const before = h.draft.points.at(-1);
+  const now = origin + 75000;
+  const { state, added } = catchUp(h, locked(10, 70), now);
+  assert.equal(added, 31);
+  assert.equal(state.draft.hiddenAt, undefined);
+  assert.equal(state.draft.resumed, origin + 9000);
+  assert.equal(state.draft.segment, h.draft.segment + 1);
+  const last = state.draft.points.at(-1);
+  assert.equal(last.activeMs, h.draft.activeMs + (last.at - (origin + 9000)));
+  assert.ok(distance(state.draft) > before.distance + 100);
+  assert.equal(state.draft.points.at(-1).segment, state.draft.segment);
+  assert.ok(restore(JSON.stringify(checkpoint(state, now))));
+});
+test("catchUp drops fixes at or before hiddenAt or after now, and is idempotent", () => {
+  const h = hiddenRun();
+  const now = origin + 40000;
+  const fixes = [...locked(0, 9), ...locked(10, 60)];
+  const first = catchUp(h, fixes, now);
+  assert.ok(first.state.draft.points.every((p) => p.at <= now));
+  assert.equal(first.state.draft.points.filter((p) => p.at <= origin + 9000).length, h.draft.points.length);
+  const again = catchUp(first.state, fixes, now);
+  assert.equal(again.added, 0);
+  assert.equal(again.state, first.state);
+});
+test("catchUp keeps the usual rules: accuracy, jumps and gaps over 15 s", () => {
+  const h = hiddenRun();
+  const fixes = [
+    fix(40, 10),
+    fix(45, 12, 80),
+    fix(50000, 14),
+    fix(60, 16),
+    fix(5000, 40),
+    fix(5010, 42),
+  ];
+  const { state } = catchUp(h, fixes, origin + 50000);
+  assert.ok(!state.draft.points.some((p) => p.accuracy > 25));
+  assert.ok(!state.draft.points.some((p) => p.lng * 111195 > 50000));
+  const late = state.draft.points.filter((p) => p.at >= origin + 40000);
+  assert.equal(late.length, 2);
+  assert.ok(late[0].segment > state.draft.points.find((p) => p.at === origin + 16000).segment);
+  assert.equal(late[0].distance, state.draft.points.find((p) => p.at === origin + 16000).distance);
+  assert.ok(distance(state.draft) < 100);
+});
+test("catchUp with nothing usable returns the identical state", () => {
+  const h = hiddenRun();
+  for (const fixes of [[], [fix(40, 5)], [fix(40, 200)], [fix(40, 10, 99)]]) {
+    const r = catchUp(h, fixes, origin + 100000);
+    assert.equal(r.added, 0);
+    assert.equal(r.state, h);
+  }
+  const plain = feed(start(), 0, 0);
+  assert.equal(catchUp(plain, locked(10, 20), origin + 30000).state, plain);
+  const paused = pause(plain, origin + 1000);
+  assert.equal(catchUp(paused, locked(10, 20), origin + 30000).added, 0);
+});
+test("catchUp inserts out-of-order fixes in order", () => {
+  const h = hiddenRun();
+  const shuffled = locked(10, 40).reverse();
+  const a = catchUp(h, shuffled, origin + 45000);
+  const b = catchUp(h, locked(10, 40), origin + 45000);
+  assert.deepEqual(a.state.draft.points, b.state.draft.points);
+});
+test("restore round-trips hiddenAt and rejects values outside started..updated", () => {
+  const h = hiddenRun();
+  const d = checkpoint(h, origin + 9000);
+  assert.equal(restore(JSON.stringify(d)).hiddenAt, origin + 9000);
+  assert.equal(restore(JSON.stringify({ ...d, hiddenAt: d.started - 1 })), null);
+  assert.equal(restore(JSON.stringify({ ...d, hiddenAt: d.updated + 1 })), null);
+  assert.equal(restore(JSON.stringify({ ...d, hiddenAt: "x" })), null);
+});
+test("an explicit resume drops hiddenAt", () => {
+  const r = resume(hiddenRun(), null, origin + 20000, "x");
+  assert.equal(r.draft.hiddenAt, undefined);
 });

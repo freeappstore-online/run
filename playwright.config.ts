@@ -9,9 +9,17 @@ export default defineConfig({
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },
     { name: "mobile", use: { ...devices["Pixel 7"], viewport: { width: 360, height: 800 } } },
   ],
-  webServer: {
-    command: "pnpm build && pnpm --filter @run/web preview --host 127.0.0.1 --port 4195 --strictPort",
-    url: "http://127.0.0.1:4195",
-    timeout: 120000,
-  },
+  webServer: [
+    {
+      command: "pnpm build && pnpm --filter @run/web preview --host 127.0.0.1 --port 4195 --strictPort",
+      url: "http://127.0.0.1:4195",
+      timeout: 120000,
+    },
+    {
+      // Recorder harness with an injectable fake GapSource (web/e2e/harness.tsx), never built or shipped.
+      command: "pnpm --filter @run/web exec vite --host 127.0.0.1 --port 4196 --strictPort",
+      url: "http://127.0.0.1:4196/e2e/harness.html",
+      timeout: 120000,
+    },
+  ],
 });

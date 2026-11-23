@@ -6,12 +6,50 @@ import {
   ingest,
   expire,
   gap,
+  hide as hideRun,
+  catchUp,
   distance,
+  type Draft,
+  type Fix,
+  type GapSource,
   type Session,
 } from "./engine";
 import { archiveRun, loadDraft, writeDraft } from "./storage";
 
-export function useRecorder(owner: string | null, keepAwake: boolean) {
+const omitHiddenAt = ({ hiddenAt: _hiddenAt, ...draft }: Draft): Draft => draft;
+const CATCH_UP_TIMEOUT = 8000;
+const RETRY_DELAY = 1500;
+const STALE_NEWEST = 20000;
+const NO_ROUTE =
+  "Paused while locked. No locked-screen route was received. Tap Resume to continue, or reconnect and try again.";
+
+/** Fetch the locked window within one 8 s budget, retrying once when the source looks incomplete or behind. */
+async function fetchWindow(source: GapSource, since: number): Promise<Fix[]> {
+  const control = new AbortController();
+  const timer = setTimeout(() => control.abort(), CATCH_UP_TIMEOUT);
+  const aborted = new Promise<never>((_, reject) =>
+    control.signal.addEventListener("abort", () => reject(Error("timeout"))),
+  );
+  aborted.catch(() => {});
+  const attempt = async () => {
+    const until = Date.now();
+    const result = await Promise.race([source.fetch(since, until, control.signal), aborted]);
+    const newest = result.fixes.reduce((n, f) => Math.max(n, f.at), 0);
+    return { fixes: result.fixes, behind: !result.complete || until - newest > STALE_NEWEST };
+  };
+  try {
+    const first = await attempt();
+    if (!first.behind) return first.fixes;
+    await Promise.race([new Promise((r) => setTimeout(r, RETRY_DELAY)), aborted]);
+    const second = await attempt().catch(() => ({ fixes: [] as Fix[] }));
+    return [...first.fixes, ...second.fixes];
+  } finally {
+    clearTimeout(timer);
+    control.abort();
+  }
+}
+
+export function useRecorder(owner: string | null, keepAwake: boolean, source?: GapSource) {
   const [initial] = useState(() => {
     try {
       const draft = loadDraft();
@@ -38,7 +76,8 @@ export function useRecorder(owner: string | null, keepAwake: boolean) {
   const [error, setError] = useState(""),
     [backupError, setBackupError] = useState(initial.error),
     [now, setNow] = useState(Date.now()),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [pending, setPending] = useState(false);
   const [awake, setAwake] = useState(false),
     locked = useRef(false),
     [revision, setRevision] = useState(0);
@@ -63,6 +102,39 @@ export function useRecorder(owner: string | null, keepAwake: boolean) {
     },
     [update, backup],
   );
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+  /** Add the points recorded while locked; true when the run now continues from them. */
+  const catchUpNow = useCallback(
+    async (): Promise<boolean> => {
+      const src = sourceRef.current,
+        draft = current.current.draft;
+      if (!src?.covers || draft?.hiddenAt == null || draft.resumed !== null || locked.current)
+        return false;
+      locked.current = true;
+      setBusy(true);
+      setPending(true);
+      update({ ...current.current, message: "Adding the route recorded while locked..." });
+      try {
+        const fixes = await fetchWindow(src, draft.hiddenAt).catch(() => [] as Fix[]);
+        const result = catchUp(current.current, fixes, Date.now());
+        if (result.added > 0) {
+          update({ ...result.state, message: "Added the route recorded while locked." });
+          // Locked again while fetching: pause once more instead of recording in the background.
+          if (document.hidden) update(hideRun(current.current, Date.now(), true));
+          return true;
+        }
+        update({ ...current.current, message: NO_ROUTE });
+        return false;
+      } finally {
+        backup();
+        locked.current = false;
+        setPending(false);
+        setBusy(false);
+      }
+    },
+    [update, backup],
+  );
   const running = state.draft?.resumed != null;
   useEffect(() => {
     const timer = setInterval(() => {
@@ -71,22 +143,34 @@ export function useRecorder(owner: string | null, keepAwake: boolean) {
       update(expire(current.current, at));
     }, 1000);
     const checkpoint = setInterval(backup, 5000);
+    const retry = () => {
+      const draft = current.current.draft;
+      if (!document.hidden && draft?.hiddenAt != null && draft.resumed === null)
+        void catchUpNow();
+    };
     const hidden = () => {
-      if (document.hidden)
-        stop(
-          "Paused because the app was hidden. Resume explicitly to continue.",
-        );
+      if (document.hidden) {
+        if (sourceRef.current) {
+          update(hideRun(current.current, Date.now(), sourceRef.current.covers));
+          backup();
+        } else
+          stop(
+            "Paused because the app was hidden. Resume explicitly to continue.",
+          );
+      } else if (sourceRef.current) retry();
     };
     const hide = () => stop("Recovered run. Resume explicitly to continue.");
     document.addEventListener("visibilitychange", hidden);
     window.addEventListener("pagehide", hide);
+    window.addEventListener("online", retry);
     return () => {
+      window.removeEventListener("online", retry);
       clearInterval(timer);
       clearInterval(checkpoint);
       document.removeEventListener("visibilitychange", hidden);
       window.removeEventListener("pagehide", hide);
     };
-  }, [update, stop, backup]);
+  }, [update, stop, backup, catchUpNow]);
   const lastOwner = useRef(owner);
   useEffect(() => {
     if (lastOwner.current !== owner) {
@@ -166,12 +250,23 @@ export function useRecorder(owner: string | null, keepAwake: boolean) {
     window.addEventListener("beforeunload", unload);
     return () => window.removeEventListener("beforeunload", unload);
   }, [running, backup]);
-  function start(workout?: string) {
-    if (locked.current || document.hidden) return;
-    update(resume(current.current, owner, Date.now(), crypto.randomUUID(), workout));
+  function begin(workout?: string, message?: string) {
+    const next = resume(current.current, owner, Date.now(), crypto.randomUUID(), workout);
+    update(message && next.draft?.resumed != null ? { ...next, message } : next);
     backup();
   }
+  async function resumeAfterCatchUp(workout?: string) {
+    if (await catchUpNow()) return;
+    begin(workout, "No locked-screen route was received; recording resumed from now.");
+  }
+  function start(workout?: string) {
+    if (locked.current || document.hidden) return;
+    if (current.current.draft?.hiddenAt != null) void resumeAfterCatchUp(workout);
+    else begin(workout);
+  }
   async function finish(title: string) {
+    if (locked.current) return false;
+    if (current.current.draft?.hiddenAt != null) await catchUpNow();
     if (locked.current) return false;
     locked.current = true;
     setBusy(true);
@@ -186,7 +281,7 @@ export function useRecorder(owner: string | null, keepAwake: boolean) {
         id: draft.id,
         ownerId: draft.ownerId,
         title: title.trim().slice(0, 100) || "My run",
-        draft,
+        draft: omitHiddenAt(draft),
       });
       writeDraft(emptySession());
       update(emptySession());
@@ -223,6 +318,7 @@ export function useRecorder(owner: string | null, keepAwake: boolean) {
     awake,
     error: error || backupError,
     busy,
+    gap: { covers: !!source?.covers, pending },
     revision,
     start,
     stop,

@@ -24,6 +24,17 @@ export type Draft = {
   points: Point[];
   /** Planned workout this run follows, if any. */
   workout?: string;
+  /** When a recording draft was hidden while a GapSource covered it; the locked stretch starts here. */
+  hiddenAt?: number;
+};
+/** Fixes for ONE device/stream between two instants; choosing among several streams is the source's job. */
+export type GapSource = {
+  covers: boolean;
+  fetch(
+    since: number,
+    until: number,
+    signal: AbortSignal,
+  ): Promise<{ fixes: Fix[]; complete: boolean }>;
 };
 export type Session = {
   draft: Draft | null;
@@ -65,9 +76,10 @@ export function resume(
       message:
         "Sign in to the account that started this run, or save it on this device.",
     };
+  const { hiddenAt: _hiddenAt, ...rest } = state.draft ?? ({} as Draft);
   const draft: Draft = state.draft
     ? {
-        ...state.draft,
+        ...rest,
         resumed: now,
         updated: now,
         segment: state.draft.segment + 1,
@@ -107,6 +119,20 @@ export function pause(
     lastFix: null,
     message,
   };
+}
+/** Page hidden: pause a recording draft, remembering where the locked stretch starts when a source covers it. */
+export function hide(state: Session, now: number, covered: boolean): Session {
+  if (state.draft?.resumed == null) return state;
+  const paused = pause(
+    state,
+    now,
+    covered
+      ? "Phone locked. Run will add the recorded route when you return."
+      : "Paused because the app was hidden. Resume explicitly to continue.",
+  );
+  return covered && paused.draft
+    ? { ...paused, draft: { ...paused.draft, hiddenAt: now } }
+    : paused;
 }
 export function gap(state: Session, message: string): Session {
   if (!state.draft || state.draft.resumed === null) return state;
@@ -194,6 +220,33 @@ export function ingest(state: Session, fix: Fix, now: number): Session {
     message: `GPS connected · ±${Math.round(fix.accuracy)} m`,
   };
 }
+/** Feed fixes recorded while hidden through the normal rules; a no-op unless a hidden recording draft exists. */
+export function catchUp(
+  state: Session,
+  fixes: Fix[],
+  now: number,
+): { state: Session; added: number } {
+  const d = state.draft;
+  const none = { state, added: 0 };
+  if (!d || d.resumed !== null || d.hiddenAt == null) return none;
+  const from = d.hiddenAt;
+  const usable = fixes
+    .filter((f) => validFix(f) && f.at > from && f.at <= now)
+    .sort((a, b) => a.at - b.at);
+  if (!usable.length) return none;
+  const { hiddenAt: _hiddenAt, ...rest } = d;
+  let next: Session = {
+    ...state,
+    draft: { ...rest, resumed: from, segment: d.segment + 1 },
+  };
+  for (const f of usable) next = ingest(next, f, f.at);
+  const added = next.draft!.points.length - d.points.length;
+  if (!added) return none;
+  return {
+    state: { ...next, draft: { ...next.draft!, updated: Math.max(next.draft!.updated, now) } },
+    added,
+  };
+}
 export function checkpoint(state: Session, now: number): Draft | null {
   return pause(state, now).draft;
 }
@@ -221,7 +274,11 @@ export function restore(raw: string | null): Draft | null {
       d.gaps < 0 ||
       !Array.isArray(d.points) ||
       d.points.length > 20000 ||
-      !(d.workout === undefined || (typeof d.workout === "string" && d.workout.length <= 128))
+      !(d.workout === undefined || (typeof d.workout === "string" && d.workout.length <= 128)) ||
+      !(
+        d.hiddenAt === undefined ||
+        (Number.isFinite(d.hiddenAt) && d.started <= d.hiddenAt && d.hiddenAt <= d.updated)
+      )
     )
       return null;
     let previous: Point | undefined;
