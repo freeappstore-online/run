@@ -102,8 +102,10 @@ export function useRecorder(owner: string | null, keepAwake: boolean, source?: G
     },
     [update, backup],
   );
-  const sourceRef = useRef(source);
+  const sourceRef = useRef(source),
+    ownerRef = useRef(owner);
   sourceRef.current = source;
+  ownerRef.current = owner;
   /** Add the points recorded while locked; true when the run now continues from them. */
   const catchUpNow = useCallback(
     async (): Promise<boolean> => {
@@ -111,6 +113,8 @@ export function useRecorder(owner: string | null, keepAwake: boolean, source?: G
         draft = current.current.draft;
       if (!src?.covers || draft?.hiddenAt == null || draft.resumed !== null || locked.current)
         return false;
+      // Another account's locked-screen points never enter this draft.
+      if (draft.ownerId !== ownerRef.current) return false;
       locked.current = true;
       setBusy(true);
       setPending(true);
