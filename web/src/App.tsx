@@ -16,6 +16,7 @@ import {
   currentPace,
   distance,
   pace,
+  recentPace,
   splits,
   unitMeters,
   type Draft,
@@ -335,7 +336,7 @@ function Workspace({
           />
           <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
             <div className="space-y-5">
-              {following && <WorkoutGuide workout={following} ms={duration} meters={total} running={recorder.running} voice={voice} />}
+              {following && <WorkoutGuide workout={following} ms={duration} meters={total} pace={recentPace(draft, recorder.now)} unit={unit} running={recorder.running} voice={voice} />}
               {!draft && offered && (
                 <NextWorkout workout={offered} disabled={recorder.busy} onStart={() => startWorkout(offered)} />
               )}

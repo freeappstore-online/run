@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, Card, PageHeader } from "./ui";
+import { pace, unitMeters, type Unit } from "./engine";
 import {
   GOALS,
   WEEKDAYS,
   addDays,
   cue,
   dayLabel,
+  effort,
   isoDay,
   mmss,
+  paceNudge,
+  paceRange,
   planFrom,
   stepAt,
   stepLabel,
@@ -18,8 +22,33 @@ import {
 } from "./plan";
 
 /** Speech plus vibration; both are off when the user disables cues. */
+let audio: AudioContext | undefined;
+/** Created on the first cue, which is the Start workout tap, so iOS allows later sounds. */
+function audioContext() {
+  try {
+    audio ??= new AudioContext();
+    void audio.resume();
+    return audio;
+  } catch {
+    return undefined;
+  }
+}
+/** A short beep for the step countdown; the last one is higher. */
+export function beep(high: boolean, enabled: boolean) {
+  const context = enabled ? audioContext() : undefined;
+  if (!context) return;
+  const tone = context.createOscillator(),
+    gain = context.createGain();
+  tone.frequency.value = high ? 1320 : 880;
+  gain.gain.value = 0.2;
+  tone.connect(gain).connect(context.destination);
+  tone.start();
+  tone.stop(context.currentTime + 0.15);
+}
+/** Speech plus vibration; all cues are off when the user disables them. */
 export function announce(text: string, enabled: boolean) {
   if (!enabled) return;
+  audioContext();
   try {
     navigator.vibrate?.([200, 100, 200]);
   } catch {
@@ -86,36 +115,75 @@ export function WorkoutGuide({
   workout,
   ms,
   meters,
+  pace: current,
+  unit,
   running,
   voice,
 }: {
   workout: Workout;
   ms: number;
   meters: number;
+  /** Recent pace in seconds per km, or null. */
+  pace: number | null;
+  unit: Unit;
   running: boolean;
   voice: boolean;
 }) {
   const { steps } = workout;
+  const total = totalMs(steps);
   const reached = workout.target !== undefined && meters >= workout.target;
   const at = stepAt(steps, ms);
   const index = reached ? steps.length : at.index,
     remaining = at.remaining;
   const complete = index === steps.length;
-  const last = useRef(index);
+  const step = steps[index],
+    next = steps[index + 1];
+  const range = step ? paceRange(step, workout.fiveK) : null;
+  const elapsed = step ? step.seconds * 1000 - remaining : 0;
+  const last = useRef(index),
+    beeped = useRef(0),
+    halfway = useRef(ms >= total / 2),
+    nudged = useRef(-Infinity);
+  // Step changes, and the end summary.
   useEffect(() => {
     if (last.current === index) return;
     last.current = index;
-    if (running)
-      announce(
-        complete
-          ? reached
-            ? `You've run ${workout.target! / 1000}K. Amazing. Finish when you're ready.`
-            : "Workout complete. Great work. Finish when you're ready."
-          : cue(steps[index]),
-        voice,
-      );
-  }, [index, complete, reached, running, voice, steps, workout.target]);
-  const next = steps[index + 1];
+    if (!running) return;
+    const covered = `${(meters / unitMeters(unit)).toFixed(1)} ${unit === "km" ? "kilometres" : "miles"}`;
+    announce(
+      complete
+        ? reached
+          ? `You've run ${workout.target! / 1000}K in ${Math.round(ms / 60000)} minutes. Amazing. Finish when you're ready.`
+          : `Workout complete. ${covered} in ${Math.round(ms / 60000)} minutes. Great work.`
+        : cue(steps[index]),
+      voice,
+    );
+    // Only the step change triggers this; ms and meters are read at that moment.
+  }, [index, complete, reached, running, voice, steps, workout.target, unit]);
+  // 3-2-1 beeps before the next step, and a halfway cue.
+  const countdown = Math.ceil(remaining / 1000);
+  useEffect(() => {
+    if (!running || complete || !next || countdown > 3 || countdown < 1 || beeped.current === countdown) return;
+    beeped.current = countdown;
+    beep(countdown === 1, voice);
+  }, [countdown, running, complete, next, voice]);
+  useEffect(() => {
+    if (countdown > 3) beeped.current = 0;
+  }, [countdown]);
+  const pastHalf = ms >= total / 2;
+  useEffect(() => {
+    if (!pastHalf || halfway.current || complete) return;
+    halfway.current = true;
+    if (running) announce("Halfway. Keep it up.", voice);
+  }, [pastHalf, complete, running, voice]);
+  // Pace nudges: not in a step's first 30 seconds, at most once a minute.
+  const hint = step && elapsed >= 30000 ? paceNudge(step, range, current) : null;
+  useEffect(() => {
+    if (!hint || !running || ms - nudged.current < 60000) return;
+    nudged.current = ms;
+    announce(hint, voice);
+  }, [hint, running, ms, voice]);
+  const show = (seconds: number) => pace(seconds * 1000, 1000, unit);
   return (
     <Card>
       <p className="text-xs font-bold uppercase tracking-widest text-accent">
@@ -127,30 +195,47 @@ export function WorkoutGuide({
           <p className="mt-1 text-sm text-muted">Great work. Finish and save your run when you're ready.</p>
         </>
       ) : (
-        <div className="mt-3 flex items-end justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-3xl font-bold">{stepLabel(steps[index])}</p>
-            <p className="mt-1 text-sm text-muted">
-              {next ? `Next: ${stepLabel(next)} ${mmss(next.seconds * 1000)}` : "Last step"}
+        <>
+          <div className="mt-3 flex items-end justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-3xl font-bold">{stepLabel(step)}</p>
+              <p className="mt-1 text-sm text-muted">
+                {next ? `Next: ${stepLabel(next)} ${mmss(next.seconds * 1000)}` : "Last step"}
+              </p>
+            </div>
+            <p aria-label="Step time remaining" className="text-5xl font-bold tabular-nums tracking-tighter">
+              {mmss(remaining)}
             </p>
           </div>
-          <p aria-label="Step time remaining" className="text-5xl font-bold tabular-nums tracking-tighter">
-            {mmss(remaining)}
-          </p>
-        </div>
+          <p className="mt-3 text-sm">{effort(step)}</p>
+          {range && (
+            <p className="mt-2 flex flex-wrap gap-x-4 text-sm tabular-nums">
+              <span>
+                Target{" "}
+                <strong>
+                  {show(range[0])}–{show(range[1])}
+                </strong>{" "}
+                /{unit}
+              </span>
+              <span className="text-muted">Now {current === null ? "—" : show(current)}</span>
+              {hint && (
+                <span role="status" className="font-semibold text-accent">
+                  {hint}
+                </span>
+              )}
+            </p>
+          )}
+        </>
       )}
       <div
         role="progressbar"
         aria-label="Workout progress"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={Math.min(100, Math.round((ms / totalMs(steps)) * 100))}
+        aria-valuenow={Math.min(100, Math.round((ms / total) * 100))}
         className="mt-4 h-2 overflow-hidden rounded-full bg-line"
       >
-        <div
-          className="h-full bg-accent"
-          style={{ width: `${Math.min(100, (ms / totalMs(steps)) * 100)}%` }}
-        />
+        <div className="h-full bg-accent" style={{ width: `${Math.min(100, (ms / total) * 100)}%` }} />
       </div>
       <p className="mt-2 text-xs text-muted">
         Step {Math.min(index + 1, steps.length)} of {steps.length}
@@ -174,9 +259,10 @@ function PlanSetup({
     [days, setDays] = useState<number[]>(initial?.days ?? [1, 3, 5]),
     [longDay, setLongDay] = useState(initial?.longDay ?? 5),
     [raceDate, setRaceDate] = useState(initial?.raceDate ?? ""),
-    [later, setLater] = useState(false);
+    [later, setLater] = useState(false),
+    [fiveK, setFiveK] = useState(initial?.fiveK ? mmss(initial.fiveK * 1000) : "");
   const result = planFrom(
-    { goal, firstStage, days, longDay: days.includes(longDay) ? longDay : days.at(-1)!, raceDate, later },
+    { goal, firstStage, days, longDay: days.includes(longDay) ? longDay : days.at(-1)!, raceDate, later, fiveK },
     new Date(),
     "preview",
     0,
@@ -232,6 +318,22 @@ function PlanSetup({
           ))}
         </select>
       </label>
+      {goal === "10k" && (
+        <label className="flex min-h-12 items-center justify-between gap-4">
+          <span>
+            <span className="block text-lg font-bold">Recent 5K time</span>
+            <span className="text-sm text-muted">Optional. Adds pace targets to easy runs and intervals.</span>
+          </span>
+          <input
+            aria-label="Recent 5K time"
+            inputMode="numeric"
+            placeholder="28:30"
+            className={`${field} w-24 text-center`}
+            value={fiveK}
+            onChange={(e) => setFiveK(e.target.value)}
+          />
+        </label>
+      )}
       <fieldset>
         <legend className="mb-1 text-lg font-bold">Pick 3 or 4 run days</legend>
         <p className="mb-3 text-sm text-muted">

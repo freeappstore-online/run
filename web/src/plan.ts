@@ -16,6 +16,8 @@ export type PlanSettings = {
   firstStage: number;
   /** Optional race day, local YYYY-MM-DD; the plan ends on it. */
   raceDate?: string;
+  /** Optional recent 5K time in seconds; sets pace ranges for paced steps. */
+  fiveK?: number;
   created: number;
 };
 export type Workout = {
@@ -31,6 +33,8 @@ export type Workout = {
   steps: Step[];
   /** Race sessions: reaching this distance (metres) completes the workout early. */
   target?: number;
+  /** The plan's recent 5K time in seconds, when known. */
+  fiveK?: number;
 };
 
 export const GOALS: Record<
@@ -67,6 +71,37 @@ const LABELS: Record<StepKind, string> = {
   cooldown: "Cool down",
 };
 export const stepLabel = (step: Step) => LABELS[step.kind];
+const EFFORT: Record<StepKind, string> = {
+  warmup: "Gentle start. Breathing easy.",
+  run: "Comfortable jog. You can still talk in short sentences.",
+  easy: "Easy. You can talk in full sentences.",
+  fast: "Hard but controlled. Only a few words at a time.",
+  walk: "Brisk walk. Let your breathing settle.",
+  cooldown: "Slow right down and relax.",
+};
+export const effort = (step: Step) => EFFORT[step.kind];
+/** Target pace range in seconds per km, from a recent 5K time, for easy and fast steps. */
+export function paceRange(step: Step, fiveK?: number): [number, number] | null {
+  if (!fiveK) return null;
+  const p = fiveK / 5;
+  if (step.kind === "fast") return [Math.round(p * 0.98), Math.round(p * 1.05)];
+  if (step.kind === "easy") return [Math.round(p * 1.2), Math.round(p * 1.35)];
+  return null;
+}
+/** Whether to nudge: too fast on any paced step, too slow only on fast steps. Pace in seconds per km. */
+export function paceNudge(step: Step, range: [number, number] | null, pace: number | null) {
+  if (!range || pace === null) return null;
+  if (pace < range[0] * 0.95) return "Ease off a little.";
+  if (step.kind === "fast" && pace > range[1] * 1.08) return "Pick it up a little.";
+  return null;
+}
+/** "28:30" or "1:02:10" to seconds; null when not a time. */
+export function parseTime(text: string) {
+  const parts = text.trim().split(":");
+  if (parts.length < 2 || parts.length > 3 || !parts.every((x) => /^\d{1,2}$/.test(x))) return null;
+  const [s, m, h = 0] = parts.map(Number).reverse();
+  return s < 60 && (parts.length === 2 || m < 60) ? h * 3600 + m * 60 + s : null;
+}
 
 const s = (kind: StepKind, minutes: number): Step => ({ kind, seconds: Math.round(minutes * 60) });
 const rep = (n: number, ...steps: Step[]) => Array.from({ length: n }, () => steps).flat();
@@ -170,6 +205,7 @@ export function buildPlan(plan: PlanSettings): Workout[] {
         stage,
         date: addDays(plan.start, (week - 1) * 7 + day),
         ...session(plan.goal, stage, n),
+        ...(plan.fiveK ? { fiveK: plan.fiveK } : {}),
       });
   }
   return workouts;
@@ -185,6 +221,8 @@ export type PlanChoices = {
   raceDate: string;
   /** Without a race: start next week instead of this one. */
   later: boolean;
+  /** Recent 5K time as typed, e.g. "28:30"; empty for none. Run 10K only. */
+  fiveK?: string;
 };
 /** Turns setup choices into settings, or explains what to change. */
 export function planFrom(
@@ -212,6 +250,9 @@ export function planFrom(
       };
   }
   if (!c.days.includes(longDay)) return { error: "Pick your long-run day from your run days." };
+  const fiveK = c.goal === "10k" && c.fiveK?.trim() ? parseTime(c.fiveK) : undefined;
+  if (fiveK === null || (fiveK !== undefined && (fiveK < 900 || fiveK > 3600)))
+    return { error: "Enter your 5K time as minutes:seconds, e.g. 28:30 (15 to 60 minutes)." };
   return {
     plan: {
       version: 2,
@@ -222,6 +263,7 @@ export function planFrom(
       longDay,
       firstStage: c.firstStage,
       ...(c.raceDate ? { raceDate: c.raceDate } : {}),
+      ...(fiveK ? { fiveK } : {}),
       created,
     },
   };
@@ -290,7 +332,8 @@ export function parsePlan(raw: unknown): PlanSettings | null {
       !Number.isInteger(firstStage) ||
       firstStage < 1 ||
       firstStage > GOALS[p.goal].weeks ||
-      (!v1 && p.raceDate !== undefined && (typeof p.raceDate !== "string" || !ISO.test(p.raceDate)))
+      (!v1 && p.raceDate !== undefined && (typeof p.raceDate !== "string" || !ISO.test(p.raceDate))) ||
+      (!v1 && p.fiveK !== undefined && !(Number.isInteger(p.fiveK) && p.fiveK >= 900 && p.fiveK <= 3600))
     )
       return null;
     return {
@@ -302,6 +345,7 @@ export function parsePlan(raw: unknown): PlanSettings | null {
       longDay,
       firstStage,
       ...(!v1 && p.raceDate ? { raceDate: p.raceDate } : {}),
+      ...(!v1 && p.fiveK ? { fiveK: p.fiveK } : {}),
       created: p.created,
     };
   } catch {

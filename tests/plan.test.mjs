@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPlan, parsePlan, planFrom, stepAt, totalMs, cue, completes, monday, addDays, GOALS } from "../web/src/plan.ts";
+import { buildPlan, parsePlan, planFrom, stepAt, totalMs, cue, completes, monday, addDays, GOALS, effort, paceRange, paceNudge, parseTime } from "../web/src/plan.ts";
 import { emptySession, resume, restore } from "../web/src/engine.ts";
 
 const v1 = (goal) => ({ version: 1, id: "p1", goal, start: "2026-11-23", days: [1, 3, 5], created: 1 });
@@ -126,4 +126,39 @@ test("a race date schedules the plan backwards so the race lands on race day", (
   assert.match(planFrom(choices({ days: [1, 3, 6], raceDate: "2026-12-27" }), today, "p", 1).error, /too soon/);
   assert.ok(planFrom(choices({ days: [1, 3, 6], firstStage: 3, raceDate: "2027-01-03" }), today, "p", 1).plan);
   assert.match(planFrom(choices({ raceDate: "2026-11-20" }), today, "p", 1).error, /future/);
+});
+
+test("a recent 5K time gives pace ranges for easy and fast steps only", () => {
+  const { plan } = planFrom(choices({ fiveK: "25:00" }), today, "p4", 1);
+  assert.equal(plan.fiveK, 1500);
+  assert.equal(parsePlan(JSON.stringify(plan)).fiveK, 1500);
+  const intervals = buildPlan(plan).find((w) => w.title === "Intervals");
+  assert.equal(intervals.fiveK, 1500);
+  const fast = intervals.steps.find((s) => s.kind === "fast"), easy = intervals.steps.find((s) => s.kind === "easy");
+  assert.deepEqual(paceRange(fast, 1500), [294, 315], "5:00/km 5K pace → about 4:54–5:15");
+  assert.deepEqual(paceRange(easy, 1500), [360, 405]);
+  assert.equal(paceRange(intervals.steps[0], 1500), null, "warm-ups are effort only");
+  assert.equal(paceRange(fast, undefined), null);
+  assert.match(effort(fast), /few words/);
+  assert.equal(planFrom(choices({ goal: "5k", fiveK: "25:00" }), today, "p", 1).plan.fiveK, undefined, "5K plans are effort-only");
+  assert.match(planFrom(choices({ fiveK: "2530" }), today, "p", 1).error, /5K time/);
+  assert.match(planFrom(choices({ fiveK: "10:00" }), today, "p", 1).error, /15 to 60/);
+  assert.equal(parsePlan({ ...plan, fiveK: 12 }), null);
+});
+
+test("pace nudges: too fast on any paced step, too slow only on fast steps", () => {
+  const fast = { kind: "fast", seconds: 60 }, easy = { kind: "easy", seconds: 600 };
+  assert.equal(paceNudge(easy, [360, 405], 330), "Ease off a little.");
+  assert.equal(paceNudge(easy, [360, 405], 480), null, "slow easy running is fine");
+  assert.equal(paceNudge(fast, [294, 315], 360), "Pick it up a little.");
+  assert.equal(paceNudge(fast, [294, 315], 300), null);
+  assert.equal(paceNudge(fast, null, 200), null);
+  assert.equal(paceNudge(fast, [294, 315], null), null);
+});
+
+test("parseTime reads minutes:seconds and hours:minutes:seconds", () => {
+  assert.equal(parseTime("28:30"), 1710);
+  assert.equal(parseTime(" 60:00 "), 3600);
+  assert.equal(parseTime("1:02:10"), 3730);
+  for (const bad of ["", "28", "28:75", "1:75:00", "a:b", "28:30:10:1"]) assert.equal(parseTime(bad), null, bad);
 });

@@ -269,17 +269,20 @@ export function pace(ms: number, meters: number, unit: Unit) {
   const seconds = Math.round(ms / 1000 / (meters / unitMeters(unit)));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
-export function currentPace(d: Draft | null, now: number, unit: Unit) {
-  if (!d || d.resumed === null) return "—";
+/** Seconds per km over the last 30 seconds of movement, or null when unknown. */
+export function recentPace(d: Draft | null, now: number) {
+  if (!d || d.resumed === null) return null;
   const last = d.points.at(-1);
-  if (!last || now - last.at > 10000) return "—";
-  const recent = d.points.filter(
-    (p) => p.segment === last.segment && last.at - p.at <= 30000,
-  );
-  const first = recent[0];
-  return first
-    ? pace(last.activeMs - first.activeMs, last.distance - first.distance, unit)
-    : "—";
+  if (!last || now - last.at > 10000) return null;
+  const first = d.points.find((p) => p.segment === last.segment && last.at - p.at <= 30000);
+  if (!first) return null;
+  const ms = last.activeMs - first.activeMs,
+    meters = last.distance - first.distance;
+  return meters < 10 || ms <= 0 ? null : ms / meters;
+}
+export function currentPace(d: Draft | null, now: number, unit: Unit) {
+  const seconds = recentPace(d, now);
+  return seconds === null ? "—" : pace(seconds * 1000, 1000, unit);
 }
 export function splits(points: Point[], unit: Unit) {
   const length = unitMeters(unit),

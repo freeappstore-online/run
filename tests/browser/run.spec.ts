@@ -12,6 +12,21 @@ async function setup(page: Page) {
     (window as any).emitFix = (m: number) =>
       watcher?.({ coords: { latitude: -37.81, longitude: 144.96 + m / 87850, accuracy: 5, altitude: null, altitudeAccuracy: null, heading: null, speed: null }, timestamp: Date.now() } as GeolocationPosition);
     (window as any).spoken = [];
+    (window as any).beeps = [];
+    (window as any).AudioContext = class {
+      currentTime = 0;
+      destination = {};
+      resume() {
+        return Promise.resolve();
+      }
+      createGain() {
+        return { gain: { value: 0 }, connect: (node: unknown) => node };
+      }
+      createOscillator() {
+        const tone = { frequency: { value: 0 }, connect: (node: unknown) => node, start: () => (window as any).beeps.push(tone.frequency.value), stop() {} };
+        return tone;
+      }
+    };
     Object.defineProperty(window, "speechSynthesis", { value: { cancel() {}, speak(u: { text: string }) { (window as any).spoken.push(u.text); } } });
   });
 }
@@ -92,10 +107,13 @@ test("plan, guided workout with cues, completion tick and profile prefs", async 
   await expect(page.getByText("Next: Walk 1:30")).toBeVisible();
   expect(await page.evaluate(() => (window as any).spoken)).toEqual(["Warm up for 5 minutes", "Run for 1 minute"]);
   await page.screenshot({ path: `test-results/guide-${test.info().project.name}.png`, fullPage: true });
+  expect(await page.evaluate(() => (window as any).beeps)).toEqual([880, 880, 1320]);
   // Week 1 run 1 is 28.5 min: a partial attempt must not tick it, so finish the workout.
   await page.clock.runFor(28.5 * 60000 - 300000);
   await expect(page.getByText("Workout complete")).toBeVisible();
-  expect((await page.evaluate(() => (window as any).spoken)).at(-1)).toMatch(/^Workout complete/);
+  const spoken: string[] = await page.evaluate(() => (window as any).spoken);
+  expect(spoken).toContain("Halfway. Keep it up.");
+  expect(spoken.at(-1)).toMatch(/^Workout complete\. 0\.0 kilometres in 29 minutes/);
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await page.getByRole("button", { name: "Finish", exact: true }).click();
   await expect(page.getByLabel("Run name")).toHaveValue("Week 1 · Run 1");
@@ -113,4 +131,29 @@ test("plan, guided workout with cues, completion tick and profile prefs", async 
   await expect(page.getByRole("checkbox", { name: /Voice cues/ })).not.toBeChecked();
   expect(await noScroll(page)).toBe(true);
   await page.screenshot({ path: `test-results/profile-${test.info().project.name}.png`, fullPage: true });
+});
+
+test("10K plan with a 5K time shows pace targets and nudges a runner going too fast", async ({ page }) => {
+  await setup(page);
+  await page.clock.install();
+  await page.goto("/plan");
+  await page.getByText("Run 10K · 8 weeks").click();
+  await page.getByLabel("Recent 5K time").fill("2500");
+  await expect(page.getByText(/Enter your 5K time/)).toBeVisible();
+  await page.getByLabel("Recent 5K time").fill("25:00");
+  await page.getByRole("button", { name: "Build my plan" }).click();
+  await page.getByRole("button", { name: "Start workout" }).click();
+  await expect(page.getByText("Next up · Week 1", { exact: false })).toContainText("Week 1");
+  await page.getByRole("button", { name: "Start workout" }).click();
+  await expect(page.getByText("Easy. You can talk in full sentences.")).toBeVisible();
+  await expect(page.getByText("6:00–6:45")).toBeVisible();
+  // 10 m every 3 s is 5:00/km, well under the easy range.
+  for (let i = 0; i <= 14; i++) {
+    await page.evaluate((n) => (window as any).emitFix(n * 10), i);
+    await page.clock.runFor(3000);
+  }
+  await expect(page.getByRole("status").filter({ hasText: "Ease off a little." })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).spoken)).toContain("Ease off a little.");
+  expect(await noScroll(page)).toBe(true);
+  await page.screenshot({ path: `test-results/pace-${test.info().project.name}.png`, fullPage: true });
 });
